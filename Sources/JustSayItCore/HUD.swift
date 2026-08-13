@@ -8,6 +8,9 @@ public final class HUD {
 
     private var panel: NSPanel?
     private var label: NSTextField?
+    /// Incremented on every show/update so a pending `flash` timeout never
+    /// hides a newer message than the one it scheduled against.
+    private var generation = 0
 
     private init() {}
 
@@ -15,6 +18,7 @@ public final class HUD {
         if panel == nil {
             build()
         }
+        generation += 1
         label?.stringValue = text
         layout()
         panel?.orderFrontRegardless()
@@ -25,14 +29,17 @@ public final class HUD {
             show(text)
             return
         }
+        generation += 1
         label?.stringValue = text
         layout()
     }
 
     public func flash(_ text: String, seconds: TimeInterval = 2.5) {
         show(text)
+        let shownGeneration = generation
         DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { [weak self] in
-            self?.hide()
+            guard let self, self.generation == shownGeneration else { return }
+            self.hide()
         }
     }
 
