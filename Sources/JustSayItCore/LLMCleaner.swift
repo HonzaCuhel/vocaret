@@ -1,0 +1,244 @@
+import Foundation
+
+/// Thread-safe holder so the spawned llama-server can be terminated
+/// synchronously from `applicationWillTerminate` (outside the actor).
+final class ProcessBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var process: Process?
+
+    func set(_ newProcess: Process?) {
+        lock.lock()
+        defer { lock.unlock() }
+        process = newProcess
+    }
+
+    func terminate() {
+        lock.lock()
+        defer { lock.unlock() }
+        if let process, process.isRunning {
+            process.terminate()
+        }
+        process = nil
+    }
+
+    var isRunning: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return process?.isRunning ?? false
+    }
+}
+
+/// Cleans dictation and structures meeting transcripts with a local LLM.
+///
+/// RAM strategy: `llama-server` is spawned only when needed and killed after
+/// 120 s idle, so the ~2.5 GB model occupies memory only around actual work.
+/// Every public method degrades gracefully — on any failure the original
+/// text is returned unchanged and the pipeline continues.
+public actor LLMCleaner {
+    public static let shared = LLMCleaner()
+
+    nonisolated let processBox = ProcessBox()
+    private var idleShutdownTask: Task<Void, Never>?
+
+    private let idleTimeout: TimeInterval = 120
+    private let startupTimeout: TimeInterval = 90
+
+    public init() {}
+
+    /// Kill the spawned server immediately (used on app quit).
+    public nonisolated func terminateServerNow() {
+        processBox.terminate()
+    }
+
+    public func cleanDictation(_ text: String) async -> String {
+        guard !text.isEmpty else { return text }
+        do {
+            let cleaned = try await chat(
+                system: LLMPrompts.dictationSystem,
+                user: text,
+                maxTokens: 4096
+            )
+            return cleaned?.isEmpty == false ? cleaned! : text
+        } catch {
+            Log.warn("Dictation cleanup skipped: \(error.localizedDescription)")
+            return text
+        }
+    }
+
+    public func structureMeeting(markdownTranscript: String) async -> String {
+        guard !markdownTranscript.isEmpty else { return markdownTranscript }
+        do {
+            let structured = try await chat(
+                system: LLMPrompts.meetingSystem,
+                user: LLMPrompts.meetingUser(transcript: markdownTranscript),
+                maxTokens: 16_384
+            )
+            return structured?.isEmpty == false ? structured! : markdownTranscript
+        } catch {
+            Log.warn("Meeting structuring skipped: \(error.localizedDescription)")
+            return markdownTranscript
+        }
+    }
+
+    // MARK: - OpenAI-compatible chat call
+
+    private struct ChatRequest: Encodable {
+        struct Message: Encodable {
+            let role: String
+            let content: String
+        }
+
+        let messages: [Message]
+        let temperature: Double
+        let max_tokens: Int
+    }
+
+    private struct ChatResponse: Decodable {
+        struct Choice: Decodable {
+            struct Message: Decodable {
+                let content: String?
+            }
+
+            let message: Message
+        }
+
+        let choices: [Choice]
+    }
+
+    private func chat(system: String, user: String, maxTokens: Int) async throws -> String? {
+        try await ensureServerRunning()
+
+        let port = SettingsStore.shared.llmPort
+        var request = URLRequest(url: URL(string: "http://127.0.0.1:\(port)/v1/chat/completions")!)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 600
+        request.httpBody = try JSONEncoder().encode(ChatRequest(
+            messages: [
+                .init(role: "system", content: system),
+                .init(role: "user", content: user),
+            ],
+            temperature: 0.3,
+            max_tokens: maxTokens
+        ))
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+            throw LLMError.badResponse
+        }
+        scheduleIdleShutdown()
+
+        let decoded = try JSONDecoder().decode(ChatResponse.self, from: data)
+        return decoded.choices.first?.message.content?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    // MARK: - Server lifecycle
+
+    public enum LLMError: Error, LocalizedError {
+        case serverBinaryNotFound
+        case modelNotFound
+        case serverDidNotStart
+        case badResponse
+
+        public var errorDescription: String? {
+            switch self {
+            case .serverBinaryNotFound:
+                return "llama-server not found — run scripts/setup_llm.sh"
+            case .modelNotFound:
+                return "No GGUF model found — run scripts/setup_llm.sh"
+            case .serverDidNotStart:
+                return "llama-server did not become healthy in time"
+            case .badResponse:
+                return "llama-server returned an error response"
+            }
+        }
+    }
+
+    private func ensureServerRunning() async throws {
+        idleShutdownTask?.cancel()
+        idleShutdownTask = nil
+
+        if await healthy() {
+            return
+        }
+
+        let (serverPath, modelPath) = try resolvePaths()
+        Log.info("Starting llama-server (\(modelPath))…")
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: serverPath)
+        process.arguments = [
+            "-m", modelPath,
+            "--host", "127.0.0.1",
+            "--port", String(SettingsStore.shared.llmPort),
+            "-c", "16384",
+            "-ngl", "99",
+            "--jinja",
+        ]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        processBox.set(process)
+
+        let deadline = Date().addingTimeInterval(startupTimeout)
+        while Date() < deadline {
+            if await healthy() {
+                Log.info("llama-server ready")
+                return
+            }
+            if !process.isRunning {
+                break
+            }
+            try? await Task.sleep(nanoseconds: 500_000_000)
+        }
+        processBox.terminate()
+        throw LLMError.serverDidNotStart
+    }
+
+    private func healthy() async -> Bool {
+        let port = SettingsStore.shared.llmPort
+        var request = URLRequest(url: URL(string: "http://127.0.0.1:\(port)/health")!)
+        request.timeoutInterval = 2
+        guard let (_, response) = try? await URLSession.shared.data(for: request) else {
+            return false
+        }
+        return (response as? HTTPURLResponse)?.statusCode == 200
+    }
+
+    private func resolvePaths() throws -> (server: String, model: String) {
+        let settings = SettingsStore.shared
+        let fileManager = FileManager.default
+
+        let serverCandidates = [
+            settings.llamaServerPath,
+            "/opt/homebrew/bin/llama-server",
+            "/usr/local/bin/llama-server",
+        ].compactMap { $0 }
+        guard let server = serverCandidates.first(where: { fileManager.isExecutableFile(atPath: $0) }) else {
+            throw LLMError.serverBinaryNotFound
+        }
+
+        var model = settings.llmModelPath
+        if model == nil || !fileManager.fileExists(atPath: model!) {
+            model = try? fileManager
+                .contentsOfDirectory(at: settings.modelsDir, includingPropertiesForKeys: nil)
+                .first { $0.pathExtension == "gguf" }?
+                .path
+        }
+        guard let model, fileManager.fileExists(atPath: model) else {
+            throw LLMError.modelNotFound
+        }
+        return (server, model)
+    }
+
+    private func scheduleIdleShutdown() {
+        idleShutdownTask?.cancel()
+        idleShutdownTask = Task { [processBox, idleTimeout] in
+            try? await Task.sleep(nanoseconds: UInt64(idleTimeout * 1_000_000_000))
+            guard !Task.isCancelled else { return }
+            Log.info("llama-server idle timeout — shutting down to free RAM")
+            processBox.terminate()
+        }
+    }
+}
