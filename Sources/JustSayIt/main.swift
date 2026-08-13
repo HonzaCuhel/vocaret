@@ -1,0 +1,3 @@
+import JustSayItCore
+
+JustSayItMain.run()
