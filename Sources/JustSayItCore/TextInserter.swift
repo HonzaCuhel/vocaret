@@ -2,51 +2,86 @@ import AppKit
 import ApplicationServices
 import Carbon.HIToolbox
 
-/// Inserts text at the current keyboard caret of whatever app is focused,
-/// Wispr-Flow style: put the transcript on the clipboard, synthesize ⌘V,
-/// then restore the previous clipboard contents.
+/// What happened to a transcript. The caller must tell the user — a transcript
+/// that silently goes nowhere is the worst failure this app can have.
+public enum InsertOutcome: Equatable {
+    /// Written straight into the focused field via the Accessibility API.
+    case insertedViaAccessibility
+    /// Put on the clipboard and ⌘V synthesized into the target app.
+    case pastedViaClipboard
+    /// Accessibility permission missing — text is on the clipboard only.
+    case noAccessibility
+    /// The user switched apps between speaking and the transcript being ready;
+    /// text is on the clipboard rather than pasted into the wrong window.
+    case targetChanged(String)
+
+    public var didInsert: Bool {
+        self == .insertedViaAccessibility || self == .pastedViaClipboard
+    }
+}
+
+/// Inserts text at the current keyboard caret of the target app, Wispr-Flow
+/// style. Prefers the Accessibility API (no clipboard involvement); falls back
+/// to clipboard + synthesized ⌘V for apps without an AX text element.
 @MainActor
 public enum TextInserter {
 
-    /// Returns true if the text was pasted; false if it was only left on the
-    /// clipboard (Accessibility not granted yet).
+    /// - Parameter targetPID: the app that was frontmost when recording stopped.
+    ///   Insertion is refused if the user has since switched apps, so a
+    ///   transcript never lands in an unrelated window.
     @discardableResult
-    public static func insert(_ text: String) async -> Bool {
+    public static func insert(_ text: String, targetPID: pid_t? = nil) async -> InsertOutcome {
         guard Permissions.accessibilityGranted(promptIfNeeded: true) else {
-            // Still hand the user the text — they can paste it themselves.
-            let pasteboard = NSPasteboard.general
-            pasteboard.clearContents()
-            pasteboard.setString(text, forType: .string)
+            copyToClipboard(text)
             Log.warn("Accessibility not granted; transcript left on clipboard")
-            return false
+            return .noAccessibility
         }
 
         // The stop hotkey is a ⌃⌥ chord; if the user still holds those keys
         // when ⌘V is posted, the target app receives ⌃⌥⌘V and nothing pastes.
         await waitForModifiersReleased()
 
-        // 1. Preferred: write straight into the focused text element via the
-        //    Accessibility API. No clipboard involvement, no synthetic keys,
-        //    so it cannot be swallowed by apps that ignore posted events.
-        if insertViaAccessibility(text) {
-            Log.info("Inserted via Accessibility API")
-            return true
+        if let targetPID {
+            let current = NSWorkspace.shared.frontmostApplication
+            if let current, current.processIdentifier != targetPID {
+                copyToClipboard(text)
+                let name = current.localizedName ?? "another app"
+                Log.warn("Frontmost app changed since recording; transcript left on clipboard")
+                return .targetChanged(name)
+            }
         }
 
-        // 2. Fallback: clipboard + synthesized ⌘V (works in Electron/Chrome
-        //    and anything else that does not expose an AX text element).
+        // 1. Preferred: write into the focused text element directly. Cannot be
+        //    swallowed by apps that ignore synthetic events, and leaves the
+        //    clipboard untouched.
+        if insertViaAccessibility(text) {
+            Log.info("Inserted via Accessibility API")
+            return .insertedViaAccessibility
+        }
+
+        // 2. Fallback: clipboard + ⌘V (Electron, Chrome, terminals…).
         let pasteboard = NSPasteboard.general
         let saved = snapshot(of: pasteboard)
-        pasteboard.clearContents()
+        let generation = pasteboard.clearContents()
+        // Ask clipboard managers not to record the transcript.
+        pasteboard.setData(Data(), forType: NSPasteboard.PasteboardType("org.nspasteboard.TransientType"))
         pasteboard.setString(text, forType: .string)
         postCmdV()
         Log.info("Inserted via clipboard + ⌘V")
 
-        // Give the target app a moment to consume the paste before restoring.
+        // Restore the previous clipboard, but only if nothing else has written
+        // to it since — otherwise we would clobber the user's newer copy.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+            guard pasteboard.changeCount == generation else { return }
             restore(saved, to: pasteboard)
         }
-        return true
+        return .pastedViaClipboard
+    }
+
+    private static func copyToClipboard(_ text: String) {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(text, forType: .string)
     }
 
     /// Sets the focused element's selected text, which inserts at the caret
@@ -58,12 +93,10 @@ public enum TextInserter {
         guard AXUIElementCopyAttributeValue(
             system, kAXFocusedUIElementAttribute as CFString, &focusedValue
         ) == .success, let focusedValue else { return false }
-        // CFTypeRef → AXUIElement (same CF type; check before force-casting).
         guard CFGetTypeID(focusedValue) == AXUIElementGetTypeID() else { return false }
         let element = focusedValue as! AXUIElement
 
-        // Only touch elements that actually hold editable text; setting
-        // kAXSelectedTextAttribute elsewhere can have surprising effects.
+        // Only touch elements that actually hold editable text.
         var settable: DarwinBoolean = false
         guard AXUIElementIsAttributeSettable(
             element, kAXSelectedTextAttribute as CFString, &settable
@@ -119,8 +152,10 @@ public enum TextInserter {
     }
 
     private static func restore(_ saved: [SavedItem], to pasteboard: NSPasteboard) {
-        guard !saved.isEmpty else { return }
+        // Always drop the transcript first: an empty snapshot means "the
+        // clipboard was empty", not "leave the transcript sitting there".
         pasteboard.clearContents()
+        guard !saved.isEmpty else { return }
         let items = saved.map { savedItem -> NSPasteboardItem in
             let item = NSPasteboardItem()
             for (type, data) in savedItem.data {

@@ -298,6 +298,23 @@ public enum SelfTest {
         NSApp.setActivationPolicy(.regular)
         defer { NSApp.setActivationPolicy(previousPolicy) }
 
+        // AppKit dispatches ⌘V through the MAIN MENU's Edit▸Paste key
+        // equivalent — NSTextView itself does not implement
+        // performKeyEquivalent: for it. A menu-bar app has no main menu, so
+        // without this the paste could never land in our own window (and a
+        // previous run of this test failed for exactly that reason, not
+        // because TextInserter was broken). Real target apps have their own
+        // Edit▸Paste, which is why ⌘V works there.
+        let previousMainMenu = NSApp.mainMenu
+        defer { NSApp.mainMenu = previousMainMenu }
+        let mainMenu = NSMenu()
+        let editItem = NSMenuItem()
+        let editMenu = NSMenu(title: "Edit")
+        editMenu.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        editItem.submenu = editMenu
+        mainMenu.addItem(editItem)
+        NSApp.mainMenu = mainMenu
+
         let window = NSWindow(
             contentRect: NSRect(x: 200, y: 200, width: 400, height: 200),
             styleMask: [.titled], backing: .buffered, defer: false
@@ -336,12 +353,24 @@ public enum SelfTest {
         pasteboard.setString("ORIGINAL CLIPBOARD", forType: .string)
 
         let payload = "Ahoj světe — pasted by JustSayIt"
-        let pasted = await TextInserter.insert(payload)
-        try? await Task.sleep(nanoseconds: 1_500_000_000)
+        let outcome = await TextInserter.insert(payload)
+        emit("[keys] insert outcome: \(outcome)")
+        try? await Task.sleep(nanoseconds: 2_000_000_000)
         emit("[keys] textview now contains: \"\(textView.string)\"")
-        check(pasted, "[keys] TextInserter reported paste")
-        check(textView.string.contains(payload), "[keys] payload landed in the focused text view via ⌘V")
+        check(outcome.didInsert, "[keys] TextInserter reported insertion")
+        check(textView.string.contains(payload), "[keys] payload landed in the focused text view")
         check(pasteboard.string(forType: .string) == "ORIGINAL CLIPBOARD", "[keys] original clipboard restored")
+
+        // Insertion must go to the caret, not replace the field: type a prefix,
+        // then insert, and require both to be present in order.
+        textView.string = ""
+        window.makeFirstResponder(textView)
+        textView.insertText("Před: ", replacementRange: NSRange(location: 0, length: 0))
+        _ = await TextInserter.insert("vloženo")
+        try? await Task.sleep(nanoseconds: 2_000_000_000)
+        emit("[keys] caret-insert result: \"\(textView.string)\"")
+        check(textView.string.contains("Před: vloženo"), "[keys] text inserted at the caret, existing content preserved")
+
         window.orderOut(nil)
     }
 

@@ -10,7 +10,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         statusController = StatusItemController(dictation: dictation, meeting: meeting)
         registerHotkeys()
         LLMCleaner.shared.reapStaleServer()
-        warnIfAccessibilityMissing()
 
         // Preload Whisper so the first dictation is instant. First launch
         // downloads the model (~632 MB), so surface that in the HUD.
@@ -30,6 +29,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             } else {
                 HUD.shared.flash("Whisper model failed to load — check the log", seconds: 5)
             }
+            // Only now (never before the model is up — a modal alert would
+            // stall the launch path) nag about the permission that makes
+            // dictation actually appear where the cursor is.
+            warnIfAccessibilityMissing()
         }
     }
 

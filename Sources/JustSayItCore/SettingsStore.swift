@@ -21,6 +21,7 @@ public final class SettingsStore: @unchecked Sendable {
         static let cleanDictation = "cleanDictation"
         static let cleanMeetings = "cleanMeetings"
         static let keepRecordings = "keepRecordings"
+        static let keepDictationHistory = "keepDictationHistory"
         static let keepModelLoaded = "keepModelLoaded"
         static let dictationKeyCode = "dictationKeyCode"
         static let dictationModifiers = "dictationModifiers"
@@ -68,6 +69,13 @@ public final class SettingsStore: @unchecked Sendable {
     public var cleanMeetings: Bool {
         get { boolValue(Key.cleanMeetings, default: true) }
         set { defaults.set(newValue, forKey: Key.cleanMeetings) }
+    }
+
+    /// Append every dictation to ~/Library/Application Support/JustSayIt/
+    /// dictation-history.md so nothing is ever lost to a failed insertion.
+    public var keepDictationHistory: Bool {
+        get { boolValue(Key.keepDictationHistory, default: true) }
+        set { defaults.set(newValue, forKey: Key.keepDictationHistory) }
     }
 
     public var keepRecordings: Bool {

@@ -102,6 +102,10 @@ public final class DictationController {
         SoundPlayer.play(.stop)
         state = .transcribing
         HUD.shared.update("Transcribing… (Esc to cancel)")
+        // Remember where the text should go — the user may switch apps while
+        // we transcribe, and we must not paste into an unrelated window.
+        let targetPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
+        let targetName = NSWorkspace.shared.frontmostApplication?.localizedName ?? "the active app"
 
         job = Task { @MainActor in
             defer {
@@ -121,13 +125,18 @@ public final class DictationController {
                     text = await LLMCleaner.shared.cleanDictation(text)
                     try Task.checkCancellation()
                 }
-                let pasted = await TextInserter.insert(text)
-                if pasted {
+                // Record BEFORE inserting: whatever happens next, the
+                // transcript is retrievable from the menu (Copy Last Dictation).
+                TranscriptHistory.shared.record(text)
+
+                switch await TextInserter.insert(text, targetPID: targetPID) {
+                case .insertedViaAccessibility, .pastedViaClipboard:
                     HUD.shared.hide()
-                } else {
-                    // Not a silent failure: say what happened and how to fix it.
+                case .noAccessibility:
                     HUD.shared.flash("Copied to clipboard — press ⌘V. Grant Accessibility for auto-typing.", seconds: 6)
                     Permissions.openAccessibilitySettings()
+                case .targetChanged(let now):
+                    HUD.shared.flash("You switched from \(targetName) to \(now) — transcript copied, press ⌘V", seconds: 6)
                 }
             } catch is CancellationError {
                 // cancel() already updated the HUD/state.

@@ -12,6 +12,8 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
     private let meetingItem = NSMenuItem()
     private let cancelItem = NSMenuItem()
     private let stateItem = NSMenuItem()
+    private let accessibilityWarningItem = NSMenuItem()
+    private let copyLastItem = NSMenuItem()
 
     public init(dictation: DictationController, meeting: MeetingController) {
         self.statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
@@ -34,6 +36,14 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
 
         stateItem.isEnabled = false
         menu.addItem(stateItem)
+
+        // Shown only while Accessibility is missing — the one condition that
+        // makes dictation look silently broken.
+        accessibilityWarningItem.title = "⚠︎ Accessibility not granted — click to fix"
+        accessibilityWarningItem.target = self
+        accessibilityWarningItem.action = #selector(fixAccessibility)
+        menu.addItem(accessibilityWarningItem)
+
         menu.addItem(.separator())
 
         // Menu items show the configured global hotkeys as a hint only (the
@@ -71,6 +81,15 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
 
         menu.addItem(.separator())
 
+        copyLastItem.title = "Copy Last Dictation"
+        copyLastItem.target = self
+        copyLastItem.action = #selector(copyLastTranscript)
+        menu.addItem(copyLastItem)
+
+        let openHistory = NSMenuItem(title: "Open Dictation History", action: #selector(openDictationHistory), keyEquivalent: "")
+        openHistory.target = self
+        menu.addItem(openHistory)
+
         let openFolder = NSMenuItem(title: "Open Meetings Folder", action: #selector(openMeetingsFolder), keyEquivalent: "")
         openFolder.target = self
         menu.addItem(openFolder)
@@ -100,6 +119,17 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
 
     private func refresh() {
         let settings = SettingsStore.shared
+        let accessibilityOK = Permissions.accessibilityGranted(promptIfNeeded: false)
+        accessibilityWarningItem.isHidden = accessibilityOK
+
+        if let last = TranscriptHistory.shared.last {
+            let preview = last.text.count > 40 ? String(last.text.prefix(40)) + "…" : last.text
+            copyLastItem.title = "Copy Last Dictation — “\(preview)”"
+            copyLastItem.isEnabled = true
+        } else {
+            copyLastItem.title = "Copy Last Dictation"
+            copyLastItem.isEnabled = false
+        }
 
         let symbolName: String
         let stateText: String
@@ -117,8 +147,10 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
             symbolName = "waveform"
             stateText = "Processing meeting…"
         default:
-            symbolName = "mic"
-            stateText = "Idle — \(settings.dictationHotkeyLabel) to dictate"
+            symbolName = accessibilityOK ? "mic" : "mic.badge.xmark"
+            stateText = accessibilityOK
+                ? "Idle — \(settings.dictationHotkeyLabel) to dictate"
+                : "Idle — needs Accessibility to type text"
         }
         statusItem.button?.image = NSImage(
             systemSymbolName: symbolName,
@@ -190,6 +222,28 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
     @objc private func toggleLoginItem() {
         LoginItem.setEnabled(!LoginItem.isEnabled)
         refresh()
+    }
+
+    @objc private func copyLastTranscript() {
+        guard let entry = TranscriptHistory.shared.last else { return }
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(entry.text, forType: .string)
+        HUD.shared.flash("Last dictation copied — press ⌘V", seconds: 3)
+    }
+
+    @objc private func openDictationHistory() {
+        let url = TranscriptHistory.shared.fileURL
+        if FileManager.default.fileExists(atPath: url.path) {
+            NSWorkspace.shared.open(url)
+        } else {
+            HUD.shared.flash("No dictation history yet", seconds: 3)
+        }
+    }
+
+    @objc private func fixAccessibility() {
+        _ = Permissions.accessibilityGranted(promptIfNeeded: true)
+        Permissions.openAccessibilitySettings()
     }
 
     @objc private func openMeetingsFolder() {
