@@ -33,6 +33,23 @@ public enum LLMPrompts {
     **Speaker [hh:mm:ss]:** format and the original language of each line.
     """
 
+    /// Appended to the dictation system prompt so the model spells the user's
+    /// own jargon, product names and people correctly instead of guessing.
+    public static func vocabularyHint(terms: [String]) -> String {
+        guard !terms.isEmpty else { return "" }
+        // The reminder about language is not redundant: a bare English list of
+        // English terms made the model translate the whole Czech sentence.
+        return """
+
+        SPELLING LIST — these terms belong to the speaker's jargon. When one of them
+        appears (however garbled by speech recognition), write it exactly as listed:
+        \(terms.joined(separator: ", "))
+        These are spellings ONLY. They do not change the language of the text:
+        keep every sentence in the language it was spoken in. A Czech sentence stays
+        Czech even when it contains English terms from this list.
+        """
+    }
+
     public static func meetingUser(transcript: String) -> String {
         "Here is the raw meeting transcript:\n\n" + transcript
     }

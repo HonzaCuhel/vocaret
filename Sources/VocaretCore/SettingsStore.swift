@@ -5,8 +5,16 @@ import Foundation
 public final class SettingsStore: @unchecked Sendable {
     public static let shared = SettingsStore()
 
-    public static let defaultWhisperModel = "openai_whisper-large-v3-v20240930_626MB"
-    public static let fallbackWhisperModel = "openai_whisper-small"
+    /// Uncompressed large-v3-turbo. Measured on Common Voice Czech it beats the
+    /// compressed 626 MB build on BOTH accuracy (12.85 % vs 14.49 % WER) and
+    /// speed (578 ms vs 706 ms per clip) — palettized weights cost more to
+    /// decompress on the ANE than they save. It is also what WhisperKit's own
+    /// device map selects for M2/M3-class Macs; the 626 MB build is the M1 tier.
+    public static let defaultWhisperModel = "openai_whisper-large-v3-v20240930"
+    /// Fallback must still be usable for Czech: `small` is 37.70 % WER — 2.6x
+    /// worse — and was silently adopted for the rest of the session on any
+    /// load error. The compressed turbo build is the smallest acceptable step.
+    public static let fallbackWhisperModel = "openai_whisper-large-v3-v20240930_626MB"
 
     private let defaults: UserDefaults
 

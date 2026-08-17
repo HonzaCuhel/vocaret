@@ -106,13 +106,21 @@ public actor LLMCleaner {
         guard !text.isEmpty else { return text }
         do {
             let output = try await chat(
-                system: LLMPrompts.dictationSystem,
+                system: LLMPrompts.dictationSystem
+                    + LLMPrompts.vocabularyHint(terms: Vocabulary.shared.terms),
                 user: text,
                 maxTokens: 4096
             )
             // A truncated cleanup would silently lose the tail of what the
             // user said — prefer the raw transcript in that case.
-            return (output.text.isEmpty || output.truncated) ? text : output.text
+            guard !output.text.isEmpty, !output.truncated else { return text }
+            // And a small model sometimes translates the text or answers it
+            // instead of correcting it. Both are worse than doing nothing.
+            guard CleanupGuard.isSafe(original: text, cleaned: output.text) else {
+                Log.warn("Discarded LLM cleanup: output was not a correction of the input")
+                return text
+            }
+            return output.text
         } catch {
             Log.warn("Dictation cleanup skipped: \(error.localizedDescription)")
             return text

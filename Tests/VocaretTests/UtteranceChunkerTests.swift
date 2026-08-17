@@ -60,8 +60,37 @@ final class UtteranceChunkerTests: XCTestCase {
     }
 
     func testTinyBlipsAreDropped() {
-        let audio = silence(seconds: 1) + tone(seconds: 0.1) + silence(seconds: 3)
+        let audio = silence(seconds: 1) + tone(seconds: 0.08) + silence(seconds: 3)
         XCTAssertTrue(chunker.chunks(in: audio).isEmpty)
+    }
+
+    /// A single short word must survive: at the previous 0.4 s floor, dictating
+    /// "Ano." produced no chunks and the transcript was silently discarded.
+    func testSingleShortWordIsKept() {
+        for spokenLength in [0.25, 0.35, 0.5] {
+            let audio = silence(seconds: 0.3) + tone(seconds: spokenLength) + silence(seconds: 0.3)
+            XCTAssertEqual(chunker.chunks(in: audio).count, 1, "\(spokenLength)s word was dropped")
+        }
+    }
+
+    /// Splitting a long region must not hand the same audio to two chunks —
+    /// padding both sides of a cut duplicated 0.5 s and words were transcribed twice.
+    func testCapSplitsDoNotOverlap() {
+        let chunks = chunker.chunks(in: tone(seconds: 70))
+        XCTAssertGreaterThanOrEqual(chunks.count, 3)
+        for (a, b) in zip(chunks, chunks.dropFirst()) {
+            XCTAssertLessThanOrEqual(a.upperBound, b.lowerBound, "chunks overlap: \(a) then \(b)")
+        }
+    }
+
+    /// One loud transient must not raise the threshold so far that speech is lost.
+    func testLoudTransientDoesNotSuppressQuietSpeech() {
+        let bang = [Float](repeating: 0.99, count: 800) // 50 ms slam
+        let audio = bang + silence(seconds: 1.5) + tone(seconds: 2, amplitude: 0.05)
+        let chunks = chunker.chunks(in: audio)
+        // The quiet speech after the bang must still be found.
+        XCTAssertTrue(chunks.contains { Double($0.upperBound) / 16_000 > 2.0 },
+                      "quiet speech was suppressed by the transient; chunks=\(chunks)")
     }
 
     func testQuietSpeechIsStillDetectedRelativeToItsOwnLevel() {

@@ -173,9 +173,15 @@ public final class DictationController {
                 }
                 if SettingsStore.shared.cleanDictation {
                     HUD.shared.update("Cleaning up… (Esc to cancel)")
+                    let raw = text
                     text = await LLMCleaner.shared.cleanDictation(text)
                     try Task.checkCancellation()
+                    // Watch what the cleanup fixes; a word corrected twice
+                    // becomes an automatic correction, LLM or not.
+                    Vocabulary.shared.learn(from: raw, to: text)
                 }
+                // Always applied, and cheap: your own spellings win.
+                text = TranscriptCorrector.apply(text, vocabulary: Vocabulary.shared)
                 // Record BEFORE inserting: whatever happens next, the
                 // transcript is retrievable from the menu (Copy Last Dictation).
                 TranscriptHistory.shared.record(text)

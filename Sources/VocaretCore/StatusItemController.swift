@@ -83,6 +83,16 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
 
         menu.addItem(.separator())
 
+        let addWord = NSMenuItem(title: "Add Word to Vocabulary…", action: #selector(addVocabularyWord), keyEquivalent: "")
+        addWord.target = self
+        menu.addItem(addWord)
+
+        let openVocabulary = NSMenuItem(title: "Edit Vocabulary…", action: #selector(openVocabularyFile), keyEquivalent: "")
+        openVocabulary.target = self
+        menu.addItem(openVocabulary)
+
+        menu.addItem(.separator())
+
         copyLastItem.title = "Copy Last Dictation"
         copyLastItem.target = self
         copyLastItem.action = #selector(copyLastTranscript)
@@ -239,6 +249,35 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
     @objc private func toggleLoginItem() {
         LoginItem.setEnabled(!LoginItem.isEnabled)
         refresh()
+    }
+
+    @objc private func addVocabularyWord() {
+        let alert = NSAlert()
+        alert.messageText = "Add a word to your vocabulary"
+        alert.informativeText = """
+        Vocaret will always spell it this way — product names, jargon, names of \
+        people. Type it exactly as you want it written.
+        """
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
+        field.placeholderString = "e.g. WhisperKit"
+        alert.accessoryView = field
+        alert.addButton(withTitle: "Add")
+        alert.addButton(withTitle: "Cancel")
+        NSApp.activate(ignoringOtherApps: true)
+        alert.window.initialFirstResponder = field
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        let word = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !word.isEmpty else { return }
+        Vocabulary.shared.addTerm(word)
+        HUD.shared.flash("“\(word)” added to your vocabulary", seconds: 3)
+    }
+
+    @objc private func openVocabularyFile() {
+        guard let url = Vocabulary.shared.vocabularyFileURL else { return }
+        if !FileManager.default.fileExists(atPath: url.path) {
+            Vocabulary.shared.save()
+        }
+        NSWorkspace.shared.open(url)
     }
 
     @objc private func copyLastTranscript() {

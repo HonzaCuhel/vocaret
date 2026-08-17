@@ -16,12 +16,17 @@ public struct UtteranceChunker {
     /// Hard cap; longer speech is split at its quietest frame near the cap.
     public var maxChunkSeconds: Double = 25.0
     /// Speech bursts shorter than this are noise/blips and are dropped.
-    public var minChunkSeconds: Double = 0.4
+    /// 0.4 s was too aggressive — a one-word dictation ("Ano.", "Hotovo.")
+    /// produced no chunks at all and the transcript silently vanished. 0.2 s
+    /// still rejects clicks and key taps but keeps single words.
+    public var minChunkSeconds: Double = 0.2
     /// Context added on both sides of each chunk (never past the audio bounds).
     public var paddingSeconds: Double = 0.25
     /// Absolute RMS floor below which nothing counts as speech.
     public var absoluteThreshold: Float = 0.0015
-    /// Threshold relative to the loudest frame — adapts to quiet microphones.
+    /// Threshold relative to a loud-but-not-peak frame. Keyed off the 95th
+    /// percentile rather than the maximum: a single door slam or plosive would
+    /// otherwise raise the bar 10-20x and push real speech below it.
     public var relativeThreshold: Float = 0.05
 
     public init() {}
@@ -41,8 +46,11 @@ public struct UtteranceChunker {
             for i in start..<end { sum += samples[i] * samples[i] }
             rms[frame] = (sum / Float(end - start)).squareRoot()
         }
-        guard let loudest = rms.max(), loudest > absoluteThreshold else { return [] }
-        let threshold = max(absoluteThreshold, loudest * relativeThreshold)
+        guard let peak = rms.max(), peak > absoluteThreshold else { return [] }
+        // 95th percentile, not the max: one transient must not define "loud".
+        let sorted = rms.sorted()
+        let loud = sorted[min(sorted.count - 1, Int(Double(sorted.count) * 0.95))]
+        let threshold = max(absoluteThreshold, max(loud, peak * 0.02) * relativeThreshold)
 
         // 2. Active frame runs → regions (in frames).
         var regions: [Range<Int>] = []
@@ -68,11 +76,15 @@ public struct UtteranceChunker {
             }
         }
 
-        // 4. Split over-long regions at the quietest frame in the back half of the cap window.
+        // 4. Split over-long regions at the quietest frame in the back half of
+        //    the cap window. Boundaries created by a split must NOT be padded
+        //    afterwards — padding both sides of a cut duplicated 0.5 s of audio
+        //    into two chunks, so words at the seam were transcribed twice.
         let maxFrames = Int(maxChunkSeconds / frameSeconds)
-        var capped: [Range<Int>] = []
+        var capped: [(range: Range<Int>, padStart: Bool, padEnd: Bool)] = []
         for region in merged {
             var current = region
+            var padStart = true
             while current.count > maxFrames {
                 let searchStart = current.lowerBound + maxFrames / 2
                 let searchEnd = current.lowerBound + maxFrames
@@ -82,20 +94,23 @@ public struct UtteranceChunker {
                     quietest = rms[frame]
                     cut = frame
                 }
-                capped.append(current.lowerBound..<cut)
+                capped.append((current.lowerBound..<cut, padStart, false))
                 current = cut..<current.upperBound
+                padStart = false
             }
-            capped.append(current)
+            capped.append((current, padStart, true))
         }
 
-        // 5. Drop blips, pad, convert to sample ranges.
+        // 5. Drop blips, pad real silence boundaries only, convert to samples.
         let minFrames = Int(minChunkSeconds / frameSeconds)
         let paddingSamples = Int(paddingSeconds * sampleRate)
         return capped
-            .filter { $0.count >= minFrames }
-            .map { region in
-                let start = max(0, region.lowerBound * frameLength - paddingSamples)
-                let end = min(samples.count, region.upperBound * frameLength + paddingSamples)
+            .filter { $0.range.count >= minFrames }
+            .map { chunk in
+                let leading = chunk.padStart ? paddingSamples : 0
+                let trailing = chunk.padEnd ? paddingSamples : 0
+                let start = max(0, chunk.range.lowerBound * frameLength - leading)
+                let end = min(samples.count, chunk.range.upperBound * frameLength + trailing)
                 return start..<end
             }
     }
