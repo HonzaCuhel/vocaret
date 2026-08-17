@@ -10,7 +10,7 @@ public enum TextInserter {
     /// Returns true if the text was pasted; false if it was only left on the
     /// clipboard (Accessibility not granted yet).
     @discardableResult
-    public static func insert(_ text: String) -> Bool {
+    public static func insert(_ text: String) async -> Bool {
         let pasteboard = NSPasteboard.general
         let saved = snapshot(of: pasteboard)
 
@@ -22,6 +22,9 @@ public enum TextInserter {
             return false
         }
 
+        // The stop hotkey is a ⌃⌥ chord; if the user still holds those keys
+        // when ⌘V is posted, the target app receives ⌃⌥⌘V and nothing pastes.
+        await waitForModifiersReleased()
         postCmdV()
 
         // Give the target app a moment to consume the paste before restoring.
@@ -29,6 +32,21 @@ public enum TextInserter {
             restore(saved, to: pasteboard)
         }
         return true
+    }
+
+    private static func waitForModifiersReleased(timeout: TimeInterval = 1.5) async {
+        let deadline = Date().addingTimeInterval(timeout)
+        let watched: [CGKeyCode] = [
+            CGKeyCode(kVK_Control), CGKeyCode(kVK_RightControl),
+            CGKeyCode(kVK_Option), CGKeyCode(kVK_RightOption),
+            CGKeyCode(kVK_Shift), CGKeyCode(kVK_RightShift),
+            CGKeyCode(kVK_Command), CGKeyCode(kVK_RightCommand),
+        ]
+        while Date() < deadline {
+            let anyDown = watched.contains { CGEventSource.keyState(.combinedSessionState, key: $0) }
+            if !anyDown { return }
+            try? await Task.sleep(nanoseconds: 30_000_000)
+        }
     }
 
     private static func postCmdV() {

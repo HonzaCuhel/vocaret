@@ -19,6 +19,9 @@ public final class SystemAudioTap {
     public private(set) var bufferWrapFailures = 0
     public private(set) var writeFailures = 0
     public private(set) var formatDescription = "unknown"
+    /// False for the whole session means the tap only ever delivered zeros —
+    /// typically the System Audio Recording permission was denied.
+    public private(set) var sawNonZeroSample = false
 
     public var diagnostics: String {
         "format=\(formatDescription) ioCallbacks=\(ioCallbackCount) wrapFailures=\(bufferWrapFailures) writeFailures=\(writeFailures)"
@@ -73,7 +76,11 @@ public final class SystemAudioTap {
                 kAudioAggregateDeviceUIDKey: UUID().uuidString,
                 kAudioAggregateDeviceIsPrivateKey: true,
                 kAudioAggregateDeviceIsStackedKey: false,
-                kAudioAggregateDeviceTapAutoStartKey: true,
+                // false: the device starts immediately (delivering silence until
+                // something plays). true would make AudioDeviceStart BLOCK the
+                // calling thread — the main thread here — until some process
+                // outputs audio, freezing the app if the call is quiet.
+                kAudioAggregateDeviceTapAutoStartKey: false,
                 kAudioAggregateDeviceSubDeviceListKey: [[String: Any]](),
                 kAudioAggregateDeviceTapListKey: [
                     [
@@ -142,6 +149,12 @@ public final class SystemAudioTap {
                 Log.error("System tap: could not wrap IO buffer (buffers=\(bufferList.pointee.mNumberBuffers), format=\(formatDescription))")
             }
             return
+        }
+        if !sawNonZeroSample, let data = buffer.floatChannelData {
+            // Interleaved: channel 0 pointer covers all channels × frames.
+            let count = Int(buffer.frameLength) * (buffer.format.isInterleaved ? Int(buffer.format.channelCount) : 1)
+            let samples = UnsafeBufferPointer(start: data[0], count: count)
+            if samples.contains(where: { $0 != 0 }) { sawNonZeroSample = true }
         }
         do {
             try file.write(from: buffer)

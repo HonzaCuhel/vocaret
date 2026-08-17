@@ -77,11 +77,21 @@ public final class SettingsStore: @unchecked Sendable {
 
     // MARK: - Hotkeys (Carbon key codes + Carbon modifier masks)
 
-    /// Defaults: dictation ⌃⌥Space, meeting ⌃⌥M.
+    /// Defaults: dictation ⌃⌥D, meeting ⌃⌥M.
+    /// (Not ⌃⌥Space: on Macs with several keyboard layouts — e.g. U.S. + Czech —
+    /// that is macOS's own "Select next source in Input menu" shortcut.)
     /// Carbon masks: cmd 0x100, shift 0x200, option 0x800, control 0x1000.
     public var dictationKeyCode: UInt32 {
-        get { uint32Value(Key.dictationKeyCode, default: 49) } // kVK_Space
+        get { uint32Value(Key.dictationKeyCode, default: 2) } // kVK_ANSI_D
         set { defaults.set(Int(newValue), forKey: Key.dictationKeyCode) }
+    }
+
+    public var dictationHotkeyLabel: String {
+        HotkeyManager.describe(keyCode: dictationKeyCode, modifiers: dictationModifiers)
+    }
+
+    public var meetingHotkeyLabel: String {
+        HotkeyManager.describe(keyCode: meetingKeyCode, modifiers: meetingModifiers)
     }
 
     public var dictationModifiers: UInt32 {

@@ -36,4 +36,40 @@ public enum LLMPrompts {
     public static func meetingUser(transcript: String) -> String {
         "Here is the raw meeting transcript:\n\n" + transcript
     }
+
+    // MARK: - Long meetings (sliced)
+
+    public static let meetingPartSystem = """
+    You are a meeting-notes assistant. You receive ONE PART of a longer meeting transcript. Lines are
+    labeled **Me** (the user) and **Them** (other participants) with [hh:mm:ss] timestamps. The
+    conversation may be in Czech, English, or a mix.
+
+    Write in the dominant language of this part. Do NOT translate quotes. Do NOT invent facts.
+    Produce Markdown with exactly these sections and nothing else:
+    ## Summary
+    3-6 bullet points covering the key topics and decisions in this part.
+    ## Action items
+    Concrete follow-ups with the owner (Me/Them) when clear, or "None".
+    """
+
+    public static func meetingPartUser(part: Int, of total: Int, transcript: String) -> String {
+        "This is part \(part) of \(total) of the meeting transcript:\n\n" + transcript
+    }
+
+    public static let meetingMergeSystem = """
+    You are a meeting-notes assistant. You receive per-part notes (Summary + Action items) for
+    consecutive parts of one long meeting, in Czech and/or English. Merge them into ONE coherent
+    set of notes in the dominant language. Remove duplicates, keep chronology, do NOT invent facts.
+    Produce Markdown with exactly these sections and nothing else:
+    ## Summary
+    5-10 bullet points for the whole meeting.
+    ## Action items
+    Deduplicated list with owners (Me/Them) when clear, or "None".
+    """
+
+    public static func meetingMergeUser(partials: [String]) -> String {
+        partials.enumerated()
+            .map { "### Notes for part \($0.offset + 1)\n\($0.element)" }
+            .joined(separator: "\n\n")
+    }
 }

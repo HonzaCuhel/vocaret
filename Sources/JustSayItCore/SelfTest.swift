@@ -130,7 +130,7 @@ public enum SelfTest {
         try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
         speaker?.terminate()
         tap.stop()
-        emit("[tap] diagnostics: \(tap.diagnostics)")
+        emit("[tap] diagnostics: \(tap.diagnostics) sawAudio=\(tap.sawNonZeroSample)")
 
         guard let (duration, peak) = wavStats(url) else {
             fail("[tap] output WAV unreadable")
@@ -175,10 +175,27 @@ public enum SelfTest {
         **Them [00:00:08]:** OK, I can finish the data section by Thursday.
         **Me [00:00:14]:** Super, já udělám úvod a závěr.
         """
-        let structured = await LLMCleaner.shared.structureMeeting(markdownTranscript: transcript)
+        let structured = await LLMCleaner.shared.structureMeeting(markdownTranscript: transcript) ?? ""
         emit("[llm] STRUCTURED MEETING:\n\(structured)")
         check(structured.contains("## Summary") || structured.contains("## Shrnutí") || structured.contains("Summary"), "[llm] meeting output has a summary section")
         check(structured.contains("Action") || structured.contains("Akční") || structured.contains("úkoly"), "[llm] meeting output has action items section")
+
+        // Long-meeting path: ~50 turns → several slices → merge pass.
+        var long = ""
+        for i in 0..<60 {
+            let t = String(format: "%02d:%02d", (i * 40) / 60, (i * 40) % 60)
+            long += (i % 2 == 0)
+                ? "**Me [00:\(t)]:** Bod \(i): probíráme rozpočet na příští kvartál a potřebujeme schválit navýšení o deset procent, protože náklady na infrastrukturu rostou rychleji, než jsme čekali.\n\n"
+                : "**Them [00:\(t)]:** Point \(i): I agree in principle, but finance needs a written justification by next Wednesday, and someone has to update the forecast spreadsheet before the board call.\n\n"
+        }
+        let sliceCount = LLMCleaner.slices(long, maxTokens: LLMCleaner.maxTranscriptTokensPerRequest).count
+        emit("[llm] long transcript ~\(LLMCleaner.estimatedTokens(long)) est. tokens → \(sliceCount) slice(s)")
+        let started2 = Date()
+        let longNotes = await LLMCleaner.shared.structureMeeting(markdownTranscript: long) ?? ""
+        emit("[llm] long-meeting structuring took \(String(format: "%.1f", Date().timeIntervalSince(started2)))s:\n\(longNotes.prefix(1200))")
+        check(sliceCount >= 2, "[llm] long transcript was sliced")
+        check(!longNotes.isEmpty && longNotes.contains("Summary"), "[llm] long-meeting notes produced with a summary")
+        check(!longNotes.contains("context limit reached"), "[llm] long-meeting notes not truncated")
     }
 
     /// Full meeting pipeline minus hotkey/HUD: both tracks → transcribe → merge → (LLM) → markdown.
@@ -231,9 +248,9 @@ public enum SelfTest {
 
         let structured = await LLMCleaner.shared.structureMeeting(markdownTranscript: raw)
         let outURL = scratchURL("selftest-meeting.md")
-        try? ("# Self-test meeting\n\n" + structured + "\n\n---\n\n## Raw transcript\n\n" + raw).write(to: outURL, atomically: true, encoding: .utf8)
+        try? ("# Self-test meeting\n\n" + (structured ?? raw) + "\n\n---\n\n## Raw transcript\n\n" + raw).write(to: outURL, atomically: true, encoding: .utf8)
         emit("[meeting] wrote \(outURL.path)")
-        check(structured != raw, "[meeting] LLM structuring changed the transcript")
+        check(structured != nil, "[meeting] LLM structuring produced notes")
     }
 
     /// Global hotkey firing + clipboard-swap ⌘V paste into a real NSTextView.
@@ -256,15 +273,19 @@ public enum SelfTest {
 
         // 1. Hotkey: register ⌃⌥Space, synthesize the keystroke, expect the handler.
         let fired = Flag()
+        // Use the configured dictation hotkey (default ⌃⌥D — ⌃⌥Space is macOS
+        // "next input source" on multi-layout Macs and would switch keyboards).
+        let keyCode = SettingsStore.shared.dictationKeyCode
+        let modifiers = SettingsStore.shared.dictationModifiers
         do {
-            try HotkeyManager.shared.register(id: 77, keyCode: 49, modifiers: 0x1800) { fired.value = true }
+            try HotkeyManager.shared.register(id: 77, keyCode: keyCode, modifiers: modifiers) { fired.value = true }
         } catch {
             fail("[keys] hotkey registration threw: \(error)")
         }
-        postKey(keyCode: 49, flags: [.maskControl, .maskAlternate])
+        postKey(keyCode: CGKeyCode(keyCode), flags: HotkeyManager.cgFlags(carbonModifiers: modifiers))
         try? await Task.sleep(nanoseconds: 1_000_000_000)
         HotkeyManager.shared.unregister(id: 77)
-        check(fired.value, "[keys] ⌃⌥Space global hotkey handler fired")
+        check(fired.value, "[keys] \(HotkeyManager.describe(keyCode: keyCode, modifiers: modifiers)) global hotkey handler fired")
 
         // 2. Paste: a real text view in our own window receives the ⌘V.
         let window = NSWindow(
@@ -285,7 +306,7 @@ public enum SelfTest {
         pasteboard.setString("ORIGINAL CLIPBOARD", forType: .string)
 
         let payload = "Ahoj světe — pasted by JustSayIt"
-        let pasted = TextInserter.insert(payload)
+        let pasted = await TextInserter.insert(payload)
         try? await Task.sleep(nanoseconds: 1_500_000_000)
         emit("[keys] textview now contains: \"\(textView.string)\"")
         check(pasted, "[keys] TextInserter reported paste")

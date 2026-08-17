@@ -2,19 +2,56 @@ import AppKit
 
 /// Small floating "Recording / Transcribing" pill near the bottom of the
 /// active screen. Non-activating, so keyboard focus stays in the user's app.
+///
+/// Two kinds of message: persistent (`show`/`update`, e.g. "● Recording…")
+/// and transient (`flash`). A flash shown while a persistent message is up
+/// restores that message when it times out instead of blanking the panel.
 @MainActor
 public final class HUD {
     public static let shared = HUD()
 
     private var panel: NSPanel?
     private var label: NSTextField?
-    /// Incremented on every show/update so a pending `flash` timeout never
-    /// hides a newer message than the one it scheduled against.
+    /// The message that should be visible once any transient flash ends.
+    private var persistentText: String?
+    /// Incremented on every content change so a pending flash timeout never
+    /// clobbers a newer message.
     private var generation = 0
 
     private init() {}
 
+    /// Show a persistent message (until `hide()` or replaced).
     public func show(_ text: String) {
+        persistentText = text
+        display(text)
+    }
+
+    /// Replace the current persistent message.
+    public func update(_ text: String) {
+        show(text)
+    }
+
+    /// Show a transient message; afterwards restore the persistent one (if any) or hide.
+    public func flash(_ text: String, seconds: TimeInterval = 2.5) {
+        display(text)
+        let shownGeneration = generation
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { [weak self] in
+            guard let self, self.generation == shownGeneration else { return }
+            if let persistent = self.persistentText {
+                self.display(persistent)
+            } else {
+                self.hide()
+            }
+        }
+    }
+
+    public func hide() {
+        persistentText = nil
+        generation += 1
+        panel?.orderOut(nil)
+    }
+
+    private func display(_ text: String) {
         if panel == nil {
             build()
         }
@@ -22,29 +59,6 @@ public final class HUD {
         label?.stringValue = text
         layout()
         panel?.orderFrontRegardless()
-    }
-
-    public func update(_ text: String) {
-        guard panel?.isVisible == true else {
-            show(text)
-            return
-        }
-        generation += 1
-        label?.stringValue = text
-        layout()
-    }
-
-    public func flash(_ text: String, seconds: TimeInterval = 2.5) {
-        show(text)
-        let shownGeneration = generation
-        DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { [weak self] in
-            guard let self, self.generation == shownGeneration else { return }
-            self.hide()
-        }
-    }
-
-    public func hide() {
-        panel?.orderOut(nil)
     }
 
     private func build() {

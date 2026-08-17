@@ -26,10 +26,12 @@ final class SettingsStoreTests: XCTestCase {
         XCTAssertTrue(store.cleanMeetings)
         XCTAssertTrue(store.keepRecordings)
         XCTAssertTrue(store.keepModelLoaded)
-        XCTAssertEqual(store.dictationKeyCode, 49)
+        XCTAssertEqual(store.dictationKeyCode, 2) // D — not Space (macOS input-source switch)
         XCTAssertEqual(store.dictationModifiers, 0x1800) // control | option
         XCTAssertEqual(store.meetingKeyCode, 46)
         XCTAssertEqual(store.meetingModifiers, 0x1800)
+        XCTAssertEqual(store.dictationHotkeyLabel, "⌃⌥D")
+        XCTAssertEqual(store.meetingHotkeyLabel, "⌃⌥M")
         XCTAssertNil(store.llamaServerPath)
         XCTAssertNil(store.llmModelPath)
         XCTAssertEqual(store.llmPort, 8765)

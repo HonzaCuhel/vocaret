@@ -22,12 +22,14 @@ public final class MeetingController {
     private var micURL: URL?
     private var systemURL: URL?
     private var startedAt: Date?
+    private var isStarting = false
 
     public init() {}
 
     public func toggle() {
         switch state {
         case .idle:
+            guard !isStarting else { return }
             start()
         case .recording:
             finish()
@@ -45,17 +47,29 @@ public final class MeetingController {
         state = .idle
     }
 
+    /// Called on app quit while recording: closes both WAV writers so the
+    /// headers are finalized. Files are kept and can be transcribed later with
+    /// `JustSayIt --transcribe <file>`.
+    public func stopForTermination() {
+        guard state == .recording else { return }
+        stopCapture()
+        state = .idle
+    }
+
     private func start() {
         guard #available(macOS 14.4, *) else {
             HUD.shared.flash("Meeting capture needs macOS 14.4 or newer")
             return
         }
+        isStarting = true
         Task { @MainActor in
+            defer { isStarting = false }
             guard await Permissions.requestMicrophone() else {
                 HUD.shared.flash("Microphone access denied — enable it in System Settings")
                 Permissions.openMicrophoneSettings()
                 return
             }
+            guard state == .idle else { return }
 
             let timestamp = Self.timestampFormatter.string(from: Date())
             let recordingsDir = SettingsStore.shared.recordingsDir
@@ -71,9 +85,19 @@ public final class MeetingController {
                 tap.stop()
                 micRecorder.stop()
                 SoundPlayer.play(.error)
-                HUD.shared.flash("Could not start meeting capture: \(error.localizedDescription)", seconds: 4)
+                if case AudioCaptureError.tapCreationFailed = error {
+                    HUD.shared.flash("System audio capture refused — allow JustSayIt under System Audio Recording", seconds: 5)
+                    Permissions.openAudioCaptureSettings()
+                } else {
+                    HUD.shared.flash("Could not start meeting capture: \(error.localizedDescription)", seconds: 4)
+                }
                 Log.error("Meeting capture failed to start: \(error)")
                 return
+            }
+            micRecorder.onInterrupted = { [weak self] error in
+                guard let self, self.state == .recording else { return }
+                Log.warn("Meeting mic interrupted: \(error?.localizedDescription ?? "device change")")
+                HUD.shared.update("● Recording meeting (mic device changed) — \(SettingsStore.shared.meetingHotkeyLabel) to finish")
             }
 
             self.systemTap = tap
@@ -82,12 +106,16 @@ public final class MeetingController {
             self.startedAt = Date()
             SoundPlayer.play(.start)
             state = .recording
-            HUD.shared.show("● Recording meeting — ⌃⌥M to finish")
+            HUD.shared.show("● Recording meeting — \(SettingsStore.shared.meetingHotkeyLabel) to finish")
         }
     }
 
     private func finish() {
         guard let micURL, let systemURL else { return }
+        var systemWasSilent = false
+        if #available(macOS 14.4, *), let tap = systemTap as? SystemAudioTap {
+            systemWasSilent = !tap.sawNonZeroSample
+        }
         stopCapture()
         SoundPlayer.play(.stop)
         state = .processing
@@ -112,18 +140,28 @@ public final class MeetingController {
             let rawTranscript = TranscriptMerger.markdown(turns: turns)
 
             var body = rawTranscript
+            var structuringFailed = false
             if SettingsStore.shared.cleanMeetings {
                 HUD.shared.update("Structuring notes with local LLM…")
-                let structured = await LLMCleaner.shared.structureMeeting(markdownTranscript: rawTranscript)
-                if structured != rawTranscript {
+                if let structured = await LLMCleaner.shared.structureMeeting(markdownTranscript: rawTranscript) {
                     body = structured + "\n\n---\n\n## Raw transcript\n\n" + rawTranscript
+                } else {
+                    structuringFailed = true
                 }
+            }
+
+            var notes: [String] = []
+            if systemWasSilent {
+                notes.append("> ⚠️ System audio was silent for the whole meeting — check System Settings → Privacy & Security → Screen & System Audio Recording, and pause music players next time.")
+            }
+            if structuringFailed {
+                notes.append("> ⚠️ AI structuring failed (llama-server missing or error) — raw transcript only.")
             }
 
             let document = """
             # Meeting \(Self.titleFormatter.string(from: startedAt))
 
-            \(body)
+            \(notes.isEmpty ? "" : notes.joined(separator: "\n\n") + "\n\n")\(body)
             """
 
             let outputURL = SettingsStore.shared.meetingsDir
@@ -140,7 +178,13 @@ public final class MeetingController {
                 deleteRecordings()
             }
 
-            HUD.shared.flash("Meeting transcript saved", seconds: 3)
+            if structuringFailed {
+                HUD.shared.flash("Transcript saved without AI structuring (LLM unavailable)", seconds: 5)
+            } else if systemWasSilent {
+                HUD.shared.flash("Transcript saved — but system audio was silent (check permission)", seconds: 6)
+            } else {
+                HUD.shared.flash("Meeting transcript saved", seconds: 3)
+            }
             NSWorkspace.shared.activateFileViewerSelecting([outputURL])
         }
     }

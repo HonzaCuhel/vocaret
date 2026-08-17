@@ -36,16 +36,14 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
         menu.addItem(stateItem)
         menu.addItem(.separator())
 
+        // Menu items show the configured global hotkeys as a hint only (the
+        // Carbon hotkeys do the actual work system-wide).
         dictationItem.target = self
         dictationItem.action = #selector(toggleDictation)
-        dictationItem.keyEquivalent = " "
-        dictationItem.keyEquivalentModifierMask = [.control, .option]
         menu.addItem(dictationItem)
 
         meetingItem.target = self
         meetingItem.action = #selector(toggleMeeting)
-        meetingItem.keyEquivalent = "m"
-        meetingItem.keyEquivalentModifierMask = [.control, .option]
         menu.addItem(meetingItem)
 
         cancelItem.title = "Cancel Recording"
@@ -119,7 +117,7 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
             stateText = "Processing meeting…"
         default:
             symbolName = "mic"
-            stateText = "Idle — ⌃⌥Space to dictate"
+            stateText = "Idle — \(settings.dictationHotkeyLabel) to dictate"
         }
         statusItem.button?.image = NSImage(
             systemSymbolName: symbolName,
@@ -127,8 +125,10 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
         )
         stateItem.title = stateText
 
-        dictationItem.title = dictation.state == .recording ? "Stop Dictation & Insert" : "Start Dictation"
-        meetingItem.title = meeting.state == .recording ? "Stop Meeting & Transcribe" : "Start Meeting Transcription"
+        dictationItem.title = (dictation.state == .recording ? "Stop Dictation & Insert" : "Start Dictation")
+            + "  (\(settings.dictationHotkeyLabel))"
+        meetingItem.title = (meeting.state == .recording ? "Stop Meeting & Transcribe" : "Start Meeting Transcription")
+            + "  (\(settings.meetingHotkeyLabel))"
         cancelItem.isHidden = dictation.state != .recording && meeting.state != .recording
 
         for item in statusItem.menu?.items ?? [] {

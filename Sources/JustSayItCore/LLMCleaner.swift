@@ -105,31 +105,95 @@ public actor LLMCleaner {
     public func cleanDictation(_ text: String) async -> String {
         guard !text.isEmpty else { return text }
         do {
-            let cleaned = try await chat(
+            let output = try await chat(
                 system: LLMPrompts.dictationSystem,
                 user: text,
                 maxTokens: 4096
             )
-            return cleaned?.isEmpty == false ? cleaned! : text
+            // A truncated cleanup would silently lose the tail of what the
+            // user said — prefer the raw transcript in that case.
+            return (output.text.isEmpty || output.truncated) ? text : output.text
         } catch {
             Log.warn("Dictation cleanup skipped: \(error.localizedDescription)")
             return text
         }
     }
 
-    public func structureMeeting(markdownTranscript: String) async -> String {
-        guard !markdownTranscript.isEmpty else { return markdownTranscript }
+    /// llama-server context window we start with (`-c`). Everything below is
+    /// budgeted against it so long meetings never overflow silently.
+    static let contextTokens = 16_384
+    /// Conservative tokens-per-byte for Czech+English mixed text (Czech
+    /// tokenizes at ~2.6 tokens/word). Used only for budgeting.
+    static func estimatedTokens(_ text: String) -> Int { text.utf8.count / 2 + 1 }
+    /// Largest transcript slice we send in one request. Leaves room for the
+    /// system prompt and an answer of similar length within the context.
+    static let maxTranscriptTokensPerRequest = 5_000
+
+    /// Structures a meeting transcript. Returns nil when the LLM could not be
+    /// used (caller keeps the raw transcript and tells the user).
+    ///
+    /// Short transcripts get the full treatment (summary, action items,
+    /// cleaned transcript). Long ones are split at turn boundaries into slices
+    /// that fit the context; each slice yields summary + action items, then a
+    /// final pass merges them. The cleaned transcript is skipped for long
+    /// meetings — the raw transcript is always saved alongside anyway.
+    public func structureMeeting(markdownTranscript: String) async -> String? {
+        guard !markdownTranscript.isEmpty else { return nil }
         do {
-            let structured = try await chat(
-                system: LLMPrompts.meetingSystem,
-                user: LLMPrompts.meetingUser(transcript: markdownTranscript),
-                maxTokens: 16_384
+            let slices = Self.slices(markdownTranscript, maxTokens: Self.maxTranscriptTokensPerRequest)
+            if slices.count == 1 {
+                let output = try await chat(
+                    system: LLMPrompts.meetingSystem,
+                    user: LLMPrompts.meetingUser(transcript: markdownTranscript),
+                    maxTokens: Self.contextTokens - Self.estimatedTokens(LLMPrompts.meetingSystem + markdownTranscript) - 256
+                )
+                return output.text.isEmpty ? nil : output.text + (output.truncated ? Self.truncationNote : "")
+            }
+
+            Log.info("Long transcript: structuring in \(slices.count) slices")
+            var partials: [String] = []
+            for (index, slice) in slices.enumerated() {
+                let output = try await chat(
+                    system: LLMPrompts.meetingPartSystem,
+                    user: LLMPrompts.meetingPartUser(part: index + 1, of: slices.count, transcript: slice),
+                    maxTokens: 2_048
+                )
+                if !output.text.isEmpty { partials.append(output.text) }
+            }
+            guard !partials.isEmpty else { return nil }
+            let merged = try await chat(
+                system: LLMPrompts.meetingMergeSystem,
+                user: LLMPrompts.meetingMergeUser(partials: partials),
+                maxTokens: 4_096
             )
-            return structured?.isEmpty == false ? structured! : markdownTranscript
+            guard !merged.text.isEmpty else { return nil }
+            return merged.text + (merged.truncated ? Self.truncationNote : "")
+                + "\n\n_(Cleaned transcript omitted for long meetings; the raw transcript follows.)_"
         } catch {
             Log.warn("Meeting structuring skipped: \(error.localizedDescription)")
-            return markdownTranscript
+            return nil
         }
+    }
+
+    static let truncationNote = "\n\n_(Output truncated: model context limit reached.)_"
+
+    /// Split a Markdown transcript at turn boundaries (blank lines) into slices
+    /// whose estimated token count stays under `maxTokens`.
+    static func slices(_ transcript: String, maxTokens: Int) -> [String] {
+        let turns = transcript.components(separatedBy: "\n\n")
+        var slices: [String] = []
+        var current = ""
+        for turn in turns {
+            let candidate = current.isEmpty ? turn : current + "\n\n" + turn
+            if !current.isEmpty, estimatedTokens(candidate) > maxTokens {
+                slices.append(current)
+                current = turn
+            } else {
+                current = candidate
+            }
+        }
+        if !current.isEmpty { slices.append(current) }
+        return slices
     }
 
     // MARK: - OpenAI-compatible chat call
@@ -152,37 +216,57 @@ public actor LLMCleaner {
             }
 
             let message: Message
+            let finish_reason: String?
         }
 
         let choices: [Choice]
     }
 
-    private func chat(system: String, user: String, maxTokens: Int) async throws -> String? {
+    struct ChatOutput {
+        var text: String
+        var truncated: Bool
+    }
+
+    private var inFlightRequests = 0
+
+    private func chat(system: String, user: String, maxTokens: Int) async throws -> ChatOutput {
         try await ensureServerRunning()
+        // Re-arm the idle timer on EVERY exit (success, HTTP error, timeout) once
+        // the last concurrent request finishes — otherwise a failed request
+        // could leave the 2.5 GB server resident forever.
+        inFlightRequests += 1
+        defer {
+            inFlightRequests -= 1
+            if inFlightRequests == 0 { scheduleIdleShutdown() }
+        }
 
         let port = SettingsStore.shared.llmPort
         var request = URLRequest(url: URL(string: "http://127.0.0.1:\(port)/v1/chat/completions")!)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.timeoutInterval = 600
+        request.timeoutInterval = 900
         request.httpBody = try JSONEncoder().encode(ChatRequest(
             messages: [
                 .init(role: "system", content: system),
                 .init(role: "user", content: user),
             ],
             temperature: 0.3,
-            max_tokens: maxTokens
+            max_tokens: max(256, maxTokens)
         ))
 
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+            let body = String(data: data, encoding: .utf8) ?? ""
+            Log.warn("llama-server HTTP \((response as? HTTPURLResponse)?.statusCode ?? -1): \(body.prefix(300))")
             throw LLMError.badResponse
         }
-        scheduleIdleShutdown()
 
         let decoded = try JSONDecoder().decode(ChatResponse.self, from: data)
-        return decoded.choices.first?.message.content?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let choice = decoded.choices.first
+        return ChatOutput(
+            text: choice?.message.content?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "",
+            truncated: choice?.finish_reason == "length"
+        )
     }
 
     // MARK: - Server lifecycle
@@ -207,10 +291,26 @@ public actor LLMCleaner {
         }
     }
 
+    /// In-flight startup. The actor is reentrant at each `await` in the
+    /// health-poll loop; without this, a dictation cleanup arriving while a
+    /// meeting's server is booting would spawn a second llama-server.
+    private var startupTask: Task<Void, Error>?
+
     private func ensureServerRunning() async throws {
         idleShutdownTask?.cancel()
         idleShutdownTask = nil
 
+        if let startupTask {
+            try await startupTask.value
+            return
+        }
+        let task = Task<Void, Error> { [self] in try await self.startServerIfNeeded() }
+        startupTask = task
+        defer { startupTask = nil }
+        try await task.value
+    }
+
+    private func startServerIfNeeded() async throws {
         if await healthy() {
             // Someone is serving on our port. If it's a server one of our
             // instances started, adopt it so the idle timer can still kill it.
@@ -229,7 +329,7 @@ public actor LLMCleaner {
             "-m", modelPath,
             "--host", "127.0.0.1",
             "--port", String(SettingsStore.shared.llmPort),
-            "-c", "16384",
+            "-c", String(Self.contextTokens),
             "-ngl", "99",
             "--jinja",
         ]

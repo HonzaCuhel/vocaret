@@ -8,6 +8,10 @@ public actor Transcriber {
     public static let shared = Transcriber()
 
     private var whisper: WhisperKit?
+    /// In-flight load. Actors are reentrant at every `await`, so without this
+    /// a hotkey press during the (minutes-long, first-launch) load would start
+    /// a second download/CoreML load of the same model.
+    private var loadTask: Task<WhisperKit, Error>?
     private var unloadTask: Task<Void, Never>?
 
     public var isReady: Bool { whisper != nil }
@@ -77,7 +81,19 @@ public actor Transcriber {
     /// - auto: decode with Whisper's own detection (no extra encoder pass);
     ///   if it picked a language outside `autoLanguages`, re-detect restricted
     ///   to the allowed set and decode again with that token forced.
-    private func transcribeChunk(_ kit: WhisperKit, _ samples: [Float], offset: Double) async throws -> [SpokenSegment] {
+    /// WhisperKit clips `windowClipTime` (1 s) off the end of every window and
+    /// decodes nothing if less than that remains — so a 0.9 s "Ano." would
+    /// vanish. Trailing zeros are harmless (Whisper pads to 30 s anyway).
+    static let minimumDecodeSeconds = 2.0
+
+    static func padded(_ samples: [Float]) -> [Float] {
+        let minimum = Int(MicRecorder.whisperSampleRate * minimumDecodeSeconds)
+        guard samples.count < minimum else { return samples }
+        return samples + [Float](repeating: 0, count: minimum - samples.count)
+    }
+
+    private func transcribeChunk(_ kit: WhisperKit, _ rawSamples: [Float], offset: Double) async throws -> [SpokenSegment] {
+        let samples = Self.padded(rawSamples)
         let settings = SettingsStore.shared
         var results: [TranscriptionResult]
         if settings.language == "auto" {
@@ -111,35 +127,69 @@ public actor Transcriber {
         unloadTask?.cancel()
         unloadTask = nil
         if let whisper { return whisper }
+        if let loadTask { return try await loadTask.value } // join the in-flight load
 
-        let wanted = SettingsStore.shared.whisperModel
-        do {
-            let kit = try await load(model: wanted)
-            whisper = kit
-            return kit
-        } catch {
-            Log.warn("Whisper model '\(wanted)' failed to load (\(error.localizedDescription)); trying fallback")
-            let kit = try await load(model: SettingsStore.fallbackWhisperModel)
-            whisper = kit
-            return kit
+        let task = Task<WhisperKit, Error> { [self] in
+            let wanted = SettingsStore.shared.whisperModel
+            do {
+                return try await self.load(model: wanted)
+            } catch {
+                Log.warn("Whisper model '\(wanted)' failed to load (\(error.localizedDescription)); trying fallback")
+                return try await self.load(model: SettingsStore.fallbackWhisperModel)
+            }
         }
+        loadTask = task
+        defer { loadTask = nil }
+        let kit = try await task.value
+        whisper = kit
+        return kit
+    }
+
+    /// Where WhisperKit/HubApi materialize a model under our downloadBase.
+    private static func localModelFolder(for model: String) -> URL {
+        SettingsStore.shared.modelsDir
+            .appendingPathComponent("models/argmaxinc/whisperkit-coreml/\(model)", isDirectory: true)
     }
 
     private func load(model: String) async throws -> WhisperKit {
-        Log.info("Loading Whisper model '\(model)'…")
-        let config = WhisperKitConfig(
-            model: model,
-            downloadBase: SettingsStore.shared.modelsDir,
-            verbose: false,
-            logLevel: .error,
-            prewarm: true,
-            load: true,
-            download: true
+        let modelsDir = SettingsStore.shared.modelsDir
+        let localFolder = Self.localModelFolder(for: model)
+        let isLocal = FileManager.default.fileExists(
+            atPath: localFolder.appendingPathComponent("TextDecoder.mlmodelc").path
         )
+        Log.info("Loading Whisper model '\(model)' (\(isLocal ? "local" : "download"))…")
+
+        // Offline-first: when the model is already on disk, point WhisperKit at
+        // the folder with downloads disabled. Otherwise WhisperKit's download
+        // path performs a network listing on EVERY launch and fails offline.
+        let config: WhisperKitConfig
+        if isLocal {
+            config = WhisperKitConfig(
+                model: model,
+                downloadBase: modelsDir,
+                modelFolder: localFolder.path,
+                verbose: false,
+                logLevel: .error,
+                prewarm: true,
+                load: true,
+                download: false
+            )
+        } else {
+            config = WhisperKitConfig(
+                model: model,
+                downloadBase: modelsDir,
+                verbose: false,
+                logLevel: .error,
+                prewarm: true,
+                load: true,
+                download: true
+            )
+        }
         let kit = try await WhisperKit(config)
-        // One-second silence warm-up so the first real dictation is instant.
+        // Silence warm-up (2 s: WhisperKit skips windows ≤ 1 s) so the first
+        // real dictation is instant. Result discarded.
         _ = try? await kit.transcribe(
-            audioArray: [Float](repeating: 0, count: Int(MicRecorder.whisperSampleRate)),
+            audioArray: [Float](repeating: 0, count: Int(MicRecorder.whisperSampleRate * Self.minimumDecodeSeconds)),
             decodeOptions: decodeOptions(language: "en")
         )
         Log.info("Whisper model '\(model)' ready")
