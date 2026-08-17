@@ -19,21 +19,47 @@ public final class DictationController {
     /// Guards the async gap in start() (permission prompt) against a second
     /// hotkey press starting a second recording.
     private var isStarting = false
+    private var releasedWhileStarting = false
     /// The transcribe/clean/paste job, kept so Esc can abort a slow cleanup.
     private var job: Task<Void, Never>?
 
     public init() {}
 
+    /// Shorter than this and the press counts as a tap (toggle mode) rather
+    /// than a hold, so a quick tap-speak-tap still works.
+    private static let holdThreshold: TimeInterval = 0.35
+    private var pressStarted: Date?
+
+    /// Hotkey went down.
     public func toggle() {
         switch state {
         case .idle:
             guard !isStarting else { return }
+            pressStarted = Date()
             start()
         case .recording:
+            pressStarted = nil
             finish()
         case .transcribing:
             break // ignore presses while a transcription is in flight; Esc cancels
         }
+    }
+
+    /// Hotkey came back up. In push-to-talk mode a held key ends the recording
+    /// and inserts immediately; a quick tap leaves it recording until the next
+    /// press.
+    public func hotkeyReleased() {
+        guard SettingsStore.shared.pushToTalk else { return }
+        // Released before the mic finished starting (permission check, engine
+        // start): remember it so start() can honour it instead of recording on.
+        if isStarting {
+            releasedWhileStarting = true
+            return
+        }
+        guard state == .recording, let pressStarted else { return }
+        guard Date().timeIntervalSince(pressStarted) >= Self.holdThreshold else { return }
+        self.pressStarted = nil
+        finish()
     }
 
     public func cancel() {
@@ -64,6 +90,7 @@ public final class DictationController {
 
     private func start() {
         isStarting = true
+        releasedWhileStarting = false
         Task { @MainActor in
             defer { isStarting = false }
             guard await Permissions.requestMicrophone() else {
@@ -85,8 +112,21 @@ public final class DictationController {
             SoundPlayer.play(.start)
             state = .recording
             let hotkey = SettingsStore.shared.dictationHotkeyLabel
-            HUD.shared.show("● Recording — \(hotkey) to insert, Esc to cancel")
+            let heldDuration = pressStarted.map { Date().timeIntervalSince($0) } ?? 0
+            let holding = SettingsStore.shared.pushToTalk && !releasedWhileStarting
+            HUD.shared.show(
+                holding
+                    ? "● Recording — release \(hotkey) to insert, Esc to cancel"
+                    : "● Recording — \(hotkey) to insert, Esc to cancel"
+            )
             registerCancelHotkey()
+
+            // The key was already let go while we were starting up.
+            if releasedWhileStarting, SettingsStore.shared.pushToTalk, heldDuration >= Self.holdThreshold {
+                releasedWhileStarting = false
+                pressStarted = nil
+                finish()
+            }
         }
     }
 

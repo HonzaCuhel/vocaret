@@ -72,10 +72,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             try HotkeyManager.shared.register(
                 id: HotkeyID.dictation,
                 keyCode: settings.dictationKeyCode,
-                modifiers: settings.dictationModifiers
-            ) { [weak self] in
-                self?.dictation.toggle()
-            }
+                modifiers: settings.dictationModifiers,
+                handler: { [weak self] in self?.dictation.toggle() },
+                onRelease: { [weak self] in self?.dictation.hotkeyReleased() }
+            )
             try HotkeyManager.shared.register(
                 id: HotkeyID.meeting,
                 keyCode: settings.meetingKeyCode,

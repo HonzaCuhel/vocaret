@@ -22,6 +22,8 @@ public final class SettingsStore: @unchecked Sendable {
         static let cleanMeetings = "cleanMeetings"
         static let keepRecordings = "keepRecordings"
         static let keepDictationHistory = "keepDictationHistory"
+        static let pushToTalk = "pushToTalk"
+        static let showHUD = "showHUD"
         static let keepModelLoaded = "keepModelLoaded"
         static let dictationKeyCode = "dictationKeyCode"
         static let dictationModifiers = "dictationModifiers"
@@ -76,6 +78,20 @@ public final class SettingsStore: @unchecked Sendable {
     public var keepDictationHistory: Bool {
         get { boolValue(Key.keepDictationHistory, default: true) }
         set { defaults.set(newValue, forKey: Key.keepDictationHistory) }
+    }
+
+    /// Hold-to-talk: holding the dictation hotkey records, releasing it
+    /// transcribes and inserts immediately. A quick tap still toggles, so both
+    /// styles work without a mode switch.
+    public var pushToTalk: Bool {
+        get { boolValue(Key.pushToTalk, default: true) }
+        set { defaults.set(newValue, forKey: Key.pushToTalk) }
+    }
+
+    /// The floating "Recording / Transcribing" pill.
+    public var showHUD: Bool {
+        get { boolValue(Key.showHUD, default: true) }
+        set { defaults.set(newValue, forKey: Key.showHUD) }
     }
 
     public var keepRecordings: Bool {

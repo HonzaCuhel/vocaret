@@ -22,26 +22,29 @@ public final class HUD {
 
     /// Show a persistent message (until `hide()` or replaced).
     public func show(_ text: String) {
+        guard SettingsStore.shared.showHUD else { return }
         persistentText = text
         display(text)
     }
 
     /// Replace the current persistent message.
     public func update(_ text: String) {
+        guard SettingsStore.shared.showHUD else { return }
         show(text)
     }
 
-    /// Show a transient message; afterwards restore the persistent one (if any) or hide.
+    /// Show a transient message and then hide.
+    ///
+    /// A flash always ENDS the current interaction, so it clears any persistent
+    /// message rather than restoring it — otherwise a notice shown at the end of
+    /// a dictation would put "Transcribing…" back on screen and leave it there.
     public func flash(_ text: String, seconds: TimeInterval = 2.5) {
+        persistentText = nil
         display(text)
         let shownGeneration = generation
         DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { [weak self] in
             guard let self, self.generation == shownGeneration else { return }
-            if let persistent = self.persistentText {
-                self.display(persistent)
-            } else {
-                self.hide()
-            }
+            self.hide()
         }
     }
 

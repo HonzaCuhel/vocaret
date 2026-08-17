@@ -74,6 +74,8 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
         languageItem.submenu = languageMenu
         menu.addItem(languageItem)
 
+        menu.addItem(makeToggle(title: "Hold Hotkey to Talk (release inserts)", action: #selector(togglePushToTalk)))
+        menu.addItem(makeToggle(title: "Show Recording Overlay", action: #selector(toggleShowHUD)))
         menu.addItem(makeToggle(title: "Clean Dictation with AI", action: #selector(toggleCleanDictation)))
         menu.addItem(makeToggle(title: "Structure Meetings with AI", action: #selector(toggleCleanMeetings)))
         menu.addItem(makeToggle(title: "Keep Meeting Audio Files", action: #selector(toggleKeepRecordings)))
@@ -149,7 +151,9 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
         default:
             symbolName = accessibilityOK ? "mic" : "mic.badge.xmark"
             stateText = accessibilityOK
-                ? "Idle — \(settings.dictationHotkeyLabel) to dictate"
+                ? (settings.pushToTalk
+                    ? "Idle — hold \(settings.dictationHotkeyLabel) and speak"
+                    : "Idle — \(settings.dictationHotkeyLabel) to dictate")
                 : "Idle — needs Accessibility to type text"
         }
         statusItem.button?.image = NSImage(
@@ -169,6 +173,8 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
                 item.state = settings.language == code ? .on : .off
             }
             switch item.action {
+            case #selector(togglePushToTalk): item.state = settings.pushToTalk ? .on : .off
+            case #selector(toggleShowHUD): item.state = settings.showHUD ? .on : .off
             case #selector(toggleCleanDictation): item.state = settings.cleanDictation ? .on : .off
             case #selector(toggleCleanMeetings): item.state = settings.cleanMeetings ? .on : .off
             case #selector(toggleKeepRecordings): item.state = settings.keepRecordings ? .on : .off
@@ -202,6 +208,17 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
             SettingsStore.shared.language = code
             refresh()
         }
+    }
+
+    @objc private func togglePushToTalk() {
+        SettingsStore.shared.pushToTalk.toggle()
+        refresh()
+    }
+
+    @objc private func toggleShowHUD() {
+        SettingsStore.shared.showHUD.toggle()
+        if !SettingsStore.shared.showHUD { HUD.shared.hide() }
+        refresh()
     }
 
     @objc private func toggleCleanDictation() {

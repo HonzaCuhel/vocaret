@@ -24,12 +24,21 @@ public final class HotkeyManager {
     public static let shared = HotkeyManager()
 
     private var handlers: [UInt32: () -> Void] = [:]
+    private var releaseHandlers: [UInt32: (() -> Void)?] = [:]
     private var refs: [UInt32: EventHotKeyRef] = [:]
     private var eventHandlerInstalled = false
 
     private init() {}
 
-    public func register(id: UInt32, keyCode: UInt32, modifiers: UInt32, handler: @escaping () -> Void) throws {
+    /// - Parameter onRelease: called when the chord is released. Supplying it
+    ///   enables push-to-talk (hold to record, release to insert).
+    public func register(
+        id: UInt32,
+        keyCode: UInt32,
+        modifiers: UInt32,
+        handler: @escaping () -> Void,
+        onRelease: (() -> Void)? = nil
+    ) throws {
         installEventHandlerIfNeeded()
         unregister(id: id)
 
@@ -41,6 +50,7 @@ public final class HotkeyManager {
         }
         refs[id] = ref
         handlers[id] = handler
+        releaseHandlers[id] = onRelease
     }
 
     public func unregister(id: UInt32) {
@@ -48,10 +58,15 @@ public final class HotkeyManager {
             UnregisterEventHotKey(ref)
         }
         handlers.removeValue(forKey: id)
+        releaseHandlers.removeValue(forKey: id)
     }
 
-    fileprivate func fire(id: UInt32) {
-        handlers[id]?()
+    fileprivate func fire(id: UInt32, released: Bool) {
+        if released {
+            releaseHandlers[id]??()
+        } else {
+            handlers[id]?()
+        }
     }
 
     // MARK: - Helpers shared with UI / self-test
@@ -90,10 +105,11 @@ public final class HotkeyManager {
 
     private func installEventHandlerIfNeeded() {
         guard !eventHandlerInstalled else { return }
-        var eventType = EventTypeSpec(
-            eventClass: OSType(kEventClassKeyboard),
-            eventKind: UInt32(kEventHotKeyPressed)
-        )
+        // Both kinds: pressed drives toggle mode, released drives push-to-talk.
+        var eventTypes = [
+            EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed)),
+            EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyReleased)),
+        ]
         let callback: EventHandlerUPP = { _, event, userData in
             guard let event, let userData else { return noErr }
             var hotKeyID = EventHotKeyID()
@@ -107,17 +123,18 @@ public final class HotkeyManager {
                 &hotKeyID
             )
             guard status == noErr else { return status }
+            let released = GetEventKind(event) == UInt32(kEventHotKeyReleased)
             let manager = Unmanaged<HotkeyManager>.fromOpaque(userData).takeUnretainedValue()
             DispatchQueue.main.async {
-                manager.fire(id: hotKeyID.id)
+                manager.fire(id: hotKeyID.id, released: released)
             }
             return noErr
         }
         InstallEventHandler(
             GetEventDispatcherTarget(),
             callback,
-            1,
-            &eventType,
+            2,
+            &eventTypes,
             Unmanaged.passUnretained(self).toOpaque(),
             nil
         )
