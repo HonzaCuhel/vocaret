@@ -1,7 +1,21 @@
-# Vocaret
+<p align="center">
+  <img src="assets/icon.png" width="128" height="128" alt="Vocaret icon">
+</p>
 
-**Local speech-to-text for macOS.** Hold a key, speak, let go — your words appear
-where your cursor is. Czech and English, mixed freely. Nothing is sent anywhere.
+<h1 align="center">Vocaret</h1>
+
+<p align="center">
+  <strong>Local speech-to-text for macOS.</strong><br>
+  Hold a key, speak, let go — your words appear where your cursor is.<br>
+  Czech and English, mixed freely. Nothing is sent anywhere.
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/macOS-14.4%2B-black" alt="macOS 14.4+">
+  <img src="https://img.shields.io/badge/Apple%20Silicon-required-black" alt="Apple Silicon required">
+  <img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="Apache-2.0">
+  <img src="https://img.shields.io/badge/version-0.1.0-orange" alt="v0.1.0">
+</p>
 
 > **Status: v0.1.0, early.** Built by one person, working well daily on one Mac.
 > Expect rough edges. There is no settings window yet — configuration is via
