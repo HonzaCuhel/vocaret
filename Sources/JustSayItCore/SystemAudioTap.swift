@@ -12,6 +12,18 @@ import Foundation
 public final class SystemAudioTap {
     public private(set) var isRunning = false
 
+    /// Diagnostics (read after stop): how many IO callbacks arrived, how many
+    /// could not be wrapped as PCM buffers, how many writes failed, and the
+    /// tap's stream format. Cheap counters kept permanently for supportability.
+    public private(set) var ioCallbackCount = 0
+    public private(set) var bufferWrapFailures = 0
+    public private(set) var writeFailures = 0
+    public private(set) var formatDescription = "unknown"
+
+    public var diagnostics: String {
+        "format=\(formatDescription) ioCallbacks=\(ioCallbackCount) wrapFailures=\(bufferWrapFailures) writeFailures=\(writeFailures)"
+    }
+
     private var tapID = AudioObjectID(kAudioObjectUnknown)
     private var aggregateID = AudioObjectID(kAudioObjectUnknown)
     private var ioProcID: AudioDeviceIOProcID?
@@ -52,6 +64,8 @@ public final class SystemAudioTap {
                 throw AudioCaptureError.formatUnsupported
             }
             format = tapFormat
+            formatDescription = "\(Int(asbd.mSampleRate))Hz ch=\(asbd.mChannelsPerFrame) bits=\(asbd.mBitsPerChannel) flags=0x\(String(asbd.mFormatFlags, radix: 16)) interleaved=\(!tapFormat.isInterleaved ? "no" : "yes") standard=\(tapFormat.isStandard)"
+            Log.info("System tap format: \(formatDescription)")
 
             // 3. Private aggregate device that contains only the tap.
             let aggregateDescription: [String: Any] = [
@@ -75,12 +89,15 @@ public final class SystemAudioTap {
             }
             aggregateID = newAggregateID
 
-            // 4. WAV sink in the tap's native format.
+            // 4. WAV sink in the tap's native format. The processing format
+            //    must match the IO buffers exactly — the tap delivers
+            //    *interleaved* Float32 (flags Float|Packed), so mirror its
+            //    interleaving or every write(from:) throws a format mismatch.
             file = try AVAudioFile(
                 forWriting: url,
                 settings: tapFormat.settings,
                 commonFormat: .pcmFormatFloat32,
-                interleaved: false
+                interleaved: tapFormat.isInterleaved
             )
 
             // 5. IO proc pulling tap buffers.
@@ -113,16 +130,26 @@ public final class SystemAudioTap {
     }
 
     private func write(bufferList: UnsafePointer<AudioBufferList>) {
+        ioCallbackCount += 1
         guard let format, let file else { return }
         guard let buffer = AVAudioPCMBuffer(
             pcmFormat: format,
             bufferListNoCopy: bufferList,
             deallocator: nil
-        ) else { return }
+        ) else {
+            bufferWrapFailures += 1
+            if bufferWrapFailures == 1 {
+                Log.error("System tap: could not wrap IO buffer (buffers=\(bufferList.pointee.mNumberBuffers), format=\(formatDescription))")
+            }
+            return
+        }
         do {
             try file.write(from: buffer)
         } catch {
-            Log.error("System tap write failed: \(error.localizedDescription)")
+            writeFailures += 1
+            if writeFailures == 1 {
+                Log.error("System tap write failed: \(error.localizedDescription)")
+            }
         }
     }
 

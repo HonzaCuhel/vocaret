@@ -6,6 +6,11 @@ public enum JustSayItMain {
     public static func run() {
         let arguments = CommandLine.arguments
 
+        // Headless runtime self-tests: `JustSayIt --selftest <mic|tap|llm|meeting|keys|all>`
+        if SelfTest.runIfRequested(arguments: arguments) {
+            return
+        }
+
         // Headless verification mode: `JustSayIt --transcribe file.wav`
         if let flagIndex = arguments.firstIndex(of: "--transcribe"), arguments.count > flagIndex + 1 {
             runTranscribeCLI(path: arguments[flagIndex + 1])
