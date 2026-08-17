@@ -67,6 +67,7 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
         menu.addItem(makeToggle(title: "Clean Dictation with AI", action: #selector(toggleCleanDictation)))
         menu.addItem(makeToggle(title: "Structure Meetings with AI", action: #selector(toggleCleanMeetings)))
         menu.addItem(makeToggle(title: "Keep Meeting Audio Files", action: #selector(toggleKeepRecordings)))
+        menu.addItem(makeToggle(title: "Start at Login", action: #selector(toggleLoginItem)))
 
         menu.addItem(.separator())
 
@@ -139,6 +140,9 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
             case #selector(toggleCleanDictation): item.state = settings.cleanDictation ? .on : .off
             case #selector(toggleCleanMeetings): item.state = settings.cleanMeetings ? .on : .off
             case #selector(toggleKeepRecordings): item.state = settings.keepRecordings ? .on : .off
+            case #selector(toggleLoginItem):
+                item.state = LoginItem.isEnabled ? .on : .off
+                item.isEnabled = LoginItem.isBundled
             default: break
             }
             if let submenu = item.submenu {
@@ -180,6 +184,11 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
 
     @objc private func toggleKeepRecordings() {
         SettingsStore.shared.keepRecordings.toggle()
+        refresh()
+    }
+
+    @objc private func toggleLoginItem() {
+        LoginItem.setEnabled(!LoginItem.isEnabled)
         refresh()
     }
 

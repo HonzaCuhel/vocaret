@@ -287,7 +287,17 @@ public enum SelfTest {
         HotkeyManager.shared.unregister(id: 77)
         check(fired.value, "[keys] \(HotkeyManager.describe(keyCode: keyCode, modifiers: modifiers)) global hotkey handler fired")
 
-        // 2. Paste: a real text view in our own window receives the ⌘V.
+        // 2. Paste into a real text view in our own window.
+        //
+        // JustSayIt normally runs as an .accessory app and never activates —
+        // in real use the ⌘V goes to whatever app the user is already in.
+        // To verify the mechanics in-process we must genuinely own the focus,
+        // so switch to .regular for this check. If we cannot take focus we
+        // must NOT post ⌘V — it would paste into the user's frontmost app.
+        let previousPolicy = NSApp.activationPolicy()
+        NSApp.setActivationPolicy(.regular)
+        defer { NSApp.setActivationPolicy(previousPolicy) }
+
         let window = NSWindow(
             contentRect: NSRect(x: 200, y: 200, width: 400, height: 200),
             styleMask: [.titled], backing: .buffered, defer: false
@@ -299,7 +309,27 @@ public enum SelfTest {
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
         window.makeFirstResponder(textView)
-        try? await Task.sleep(nanoseconds: 700_000_000)
+
+        // Wait (bounded) until we are genuinely the active app with a key window.
+        var focused = false
+        for _ in 0..<40 {
+            try? await Task.sleep(nanoseconds: 100_000_000)
+            if NSApp.isActive, window.isKeyWindow, window.firstResponder === textView {
+                focused = true
+                break
+            }
+            NSApp.activate(ignoringOtherApps: true)
+            window.makeKeyAndOrderFront(nil)
+            window.makeFirstResponder(textView)
+        }
+        let frontmost = NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "unknown"
+        emit("[keys] focus state: appActive=\(NSApp.isActive) keyWindow=\(window.isKeyWindow) firstResponderIsTextView=\(window.firstResponder === textView) frontmost=\(frontmost)")
+
+        guard focused else {
+            fail("[keys] could not focus our own window — skipping the ⌘V check rather than pasting into \(frontmost)")
+            window.orderOut(nil)
+            return
+        }
 
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()

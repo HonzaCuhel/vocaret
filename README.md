@@ -48,12 +48,15 @@ After that everything is offline.
 
 Check them anytime via menu-bar icon → *Check Permissions…*.
 
-> **Note:** by default the app is ad-hoc signed. After you **rebuild**, macOS treats it as a new
-> binary and asks for Microphone / System Audio again and you may need to re-toggle Accessibility.
-> To make grants survive rebuilds, sign with your Apple Development identity once:
-> `CODESIGN_IDENTITY="Apple Development: you@example.com (TEAMID)" scripts/build_app.sh --install`
-> (find it with `security find-identity -v -p codesigning`; the first use pops a keychain dialog —
-> click **Always Allow**).
+> **Signing & permissions:** `build_app.sh` automatically signs with your **Apple Development**
+> identity when you have one (`security find-identity -v -p codesigning`). That matters: a
+> team-signed app keeps its permissions across rebuilds, whereas an ad-hoc signed app looks like a
+> brand-new app to macOS every single build, silently losing Accessibility — which makes dictation
+> appear to do nothing. The first signing pops a keychain dialog: click **Always Allow**.
+> Force ad-hoc with `JUSTSAYIT_ADHOC=1 scripts/build_app.sh`.
+>
+> **The app must be running** for the hotkeys to work — it lives in the menu bar. Enable
+> *Start at Login* from its menu so it always is.
 
 ## Usage
 
@@ -79,7 +82,11 @@ Meeting transcripts land in `~/Documents/JustSayIt/Meetings/` as Markdown (raw W
 
 Menu options: language (Auto / Čeština / English), *Clean Dictation with AI* (off by default —
 adds a second or two of latency), *Structure Meetings with AI* (on by default), *Keep Meeting
-Audio Files*.
+Audio Files*, *Start at Login*.
+
+Text insertion tries the Accessibility API first (writes straight into the focused field), and
+falls back to clipboard + ⌘V for apps that don't expose one (Electron, Chrome). Both need the
+Accessibility permission; without it the transcript is copied to the clipboard and the HUD says so.
 
 > **Tips:** wear headphones during meetings (with speakers, the mic hears the other participants
 > too and their words can show up in both tracks), and pause Spotify/Music — everything the Mac
@@ -140,9 +147,13 @@ Design and plan docs: `docs/superpowers/`.
 
 ## Troubleshooting
 
-- **Hotkey does nothing** — another app owns `⌃⌥D`; change it (see Configuration) or free it.
-- **Text lands in clipboard but doesn't paste** — grant Accessibility (see Permissions), or
-  re-grant after a rebuild.
+- **Hotkey does nothing** — first check the app is actually running (menu-bar mic icon; enable
+  *Start at Login*). Otherwise another app may own `⌃⌥D` — change it (see Configuration).
+- **Text lands in clipboard but doesn't paste** — grant Accessibility (see Permissions). After an
+  ad-hoc rebuild you must toggle JustSayIt **off and on** in that list; sign with an Apple
+  Development identity to avoid this entirely.
+- **Nothing appears and no HUD** — the app quit or was replaced by a rebuild; relaunch it with
+  `open ~/Applications/JustSayIt.app`.
 - **"llama-server not found"** — run `scripts/setup_llm.sh`; cleanup features are optional and
   the app works fine without them (raw transcripts are delivered unchanged).
 - **Meeting has no "Them" lines** — check System Settings → Privacy & Security → Screen & System

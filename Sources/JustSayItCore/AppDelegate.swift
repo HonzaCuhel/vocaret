@@ -10,6 +10,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         statusController = StatusItemController(dictation: dictation, meeting: meeting)
         registerHotkeys()
         LLMCleaner.shared.reapStaleServer()
+        warnIfAccessibilityMissing()
 
         // Preload Whisper so the first dictation is instant. First launch
         // downloads the model (~632 MB), so surface that in the HUD.
@@ -37,6 +38,29 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         meeting.stopForTermination()
         dictation.stopForTermination()
         LLMCleaner.shared.terminateServerNow()
+    }
+
+    /// Without Accessibility the app can only put text on the clipboard, which
+    /// looks exactly like "dictation is broken". Say so up front, once.
+    private func warnIfAccessibilityMissing() {
+        guard !Permissions.accessibilityGranted(promptIfNeeded: false) else { return }
+        Log.warn("Accessibility not granted — auto-paste unavailable")
+        let alert = NSAlert()
+        alert.messageText = "JustSayIt needs Accessibility permission"
+        alert.informativeText = """
+        Without it, dictated text can only be copied to the clipboard instead of being typed \
+        where your cursor is.
+
+        Enable JustSayIt in System Settings → Privacy & Security → Accessibility.
+
+        (If it is already listed, switch it off and on again — a rebuilt app counts as a new app.)
+        """
+        alert.addButton(withTitle: "Open Accessibility Settings")
+        alert.addButton(withTitle: "Later")
+        NSApp.activate(ignoringOtherApps: true)
+        if alert.runModal() == .alertFirstButtonReturn {
+            Permissions.openAccessibilitySettings()
+        }
     }
 
     private func registerHotkeys() {

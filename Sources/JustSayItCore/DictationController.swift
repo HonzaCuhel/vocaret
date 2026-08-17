@@ -125,7 +125,9 @@ public final class DictationController {
                 if pasted {
                     HUD.shared.hide()
                 } else {
-                    HUD.shared.flash("Copied — press ⌘V to paste (grant Accessibility for auto-paste)", seconds: 4)
+                    // Not a silent failure: say what happened and how to fix it.
+                    HUD.shared.flash("Copied to clipboard — press ⌘V. Grant Accessibility for auto-typing.", seconds: 6)
+                    Permissions.openAccessibilitySettings()
                 }
             } catch is CancellationError {
                 // cancel() already updated the HUD/state.

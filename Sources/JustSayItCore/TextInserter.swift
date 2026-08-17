@@ -1,4 +1,5 @@
 import AppKit
+import ApplicationServices
 import Carbon.HIToolbox
 
 /// Inserts text at the current keyboard caret of whatever app is focused,
@@ -11,13 +12,11 @@ public enum TextInserter {
     /// clipboard (Accessibility not granted yet).
     @discardableResult
     public static func insert(_ text: String) async -> Bool {
-        let pasteboard = NSPasteboard.general
-        let saved = snapshot(of: pasteboard)
-
-        pasteboard.clearContents()
-        pasteboard.setString(text, forType: .string)
-
         guard Permissions.accessibilityGranted(promptIfNeeded: true) else {
+            // Still hand the user the text — they can paste it themselves.
+            let pasteboard = NSPasteboard.general
+            pasteboard.clearContents()
+            pasteboard.setString(text, forType: .string)
             Log.warn("Accessibility not granted; transcript left on clipboard")
             return false
         }
@@ -25,13 +24,54 @@ public enum TextInserter {
         // The stop hotkey is a ⌃⌥ chord; if the user still holds those keys
         // when ⌘V is posted, the target app receives ⌃⌥⌘V and nothing pastes.
         await waitForModifiersReleased()
+
+        // 1. Preferred: write straight into the focused text element via the
+        //    Accessibility API. No clipboard involvement, no synthetic keys,
+        //    so it cannot be swallowed by apps that ignore posted events.
+        if insertViaAccessibility(text) {
+            Log.info("Inserted via Accessibility API")
+            return true
+        }
+
+        // 2. Fallback: clipboard + synthesized ⌘V (works in Electron/Chrome
+        //    and anything else that does not expose an AX text element).
+        let pasteboard = NSPasteboard.general
+        let saved = snapshot(of: pasteboard)
+        pasteboard.clearContents()
+        pasteboard.setString(text, forType: .string)
         postCmdV()
+        Log.info("Inserted via clipboard + ⌘V")
 
         // Give the target app a moment to consume the paste before restoring.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
             restore(saved, to: pasteboard)
         }
         return true
+    }
+
+    /// Sets the focused element's selected text, which inserts at the caret
+    /// (replacing any selection). Returns false when there is no focused text
+    /// element or the app does not support the attribute.
+    private static func insertViaAccessibility(_ text: String) -> Bool {
+        let system = AXUIElementCreateSystemWide()
+        var focusedValue: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(
+            system, kAXFocusedUIElementAttribute as CFString, &focusedValue
+        ) == .success, let focusedValue else { return false }
+        // CFTypeRef → AXUIElement (same CF type; check before force-casting).
+        guard CFGetTypeID(focusedValue) == AXUIElementGetTypeID() else { return false }
+        let element = focusedValue as! AXUIElement
+
+        // Only touch elements that actually hold editable text; setting
+        // kAXSelectedTextAttribute elsewhere can have surprising effects.
+        var settable: DarwinBoolean = false
+        guard AXUIElementIsAttributeSettable(
+            element, kAXSelectedTextAttribute as CFString, &settable
+        ) == .success, settable.boolValue else { return false }
+
+        return AXUIElementSetAttributeValue(
+            element, kAXSelectedTextAttribute as CFString, text as CFTypeRef
+        ) == .success
     }
 
     private static func waitForModifiersReleased(timeout: TimeInterval = 1.5) async {
