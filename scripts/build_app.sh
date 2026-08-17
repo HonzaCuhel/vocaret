@@ -13,6 +13,14 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp .build/release/JustSayIt "$APP/Contents/MacOS/JustSayIt"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
+# Regenerate the icon if it is missing (scripts/make_icon.swift is the source).
+if [[ ! -f Resources/AppIcon.icns ]]; then
+    echo "==> Generating app icon"
+    ICONSET=$(mktemp -d)/AppIcon.iconset
+    swift scripts/make_icon.swift "$ICONSET" >/dev/null
+    iconutil -c icns "$ICONSET" -o Resources/AppIcon.icns
+fi
+cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 
 # Signing. An Apple Development identity is used automatically when present:
 # its designated requirement is team-ID based and therefore STABLE across
