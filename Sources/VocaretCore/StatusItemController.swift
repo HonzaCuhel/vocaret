@@ -101,7 +101,7 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
         menu.addItem(permissions)
 
         menu.addItem(.separator())
-        let quit = NSMenuItem(title: "Quit Utter", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        let quit = NSMenuItem(title: "Quit Vocaret", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         menu.addItem(quit)
 
         return menu
@@ -158,7 +158,7 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
         }
         statusItem.button?.image = NSImage(
             systemSymbolName: symbolName,
-            accessibilityDescription: "Utter"
+            accessibilityDescription: "Vocaret"
         )
         stateItem.title = stateText
 
@@ -279,7 +279,7 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
             : "NOT granted — needed to auto-paste; System Settings → Privacy → Accessibility"
 
         let alert = NSAlert()
-        alert.messageText = "Utter Permissions"
+        alert.messageText = "Vocaret Permissions"
         alert.informativeText = """
         Microphone: \(microphone)
         Accessibility (auto-paste): \(accessibility)

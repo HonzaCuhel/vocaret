@@ -25,7 +25,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             // Don't talk over an active recording the user already started.
             guard dictation.state == .idle, meeting.state == .idle else { return }
             if ready {
-                HUD.shared.flash("Utter ready — press \(SettingsStore.shared.dictationHotkeyLabel) and speak", seconds: 3)
+                HUD.shared.flash("Vocaret ready — press \(SettingsStore.shared.dictationHotkeyLabel) and speak", seconds: 3)
             } else {
                 HUD.shared.flash("Whisper model failed to load — check the log", seconds: 5)
             }
@@ -49,12 +49,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         guard !Permissions.accessibilityGranted(promptIfNeeded: false) else { return }
         Log.warn("Accessibility not granted — auto-paste unavailable")
         let alert = NSAlert()
-        alert.messageText = "Utter needs Accessibility permission"
+        alert.messageText = "Vocaret needs Accessibility permission"
         alert.informativeText = """
         Without it, dictated text can only be copied to the clipboard instead of being typed \
         where your cursor is.
 
-        Enable Utter in System Settings → Privacy & Security → Accessibility.
+        Enable Vocaret in System Settings → Privacy & Security → Accessibility.
 
         (If it is already listed, switch it off and on again — a rebuilt app counts as a new app.)
         """

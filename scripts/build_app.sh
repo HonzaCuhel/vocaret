@@ -1,5 +1,5 @@
 #!/bin/bash
-# Build Utter.app from the SwiftPM package.
+# Build Vocaret.app from the SwiftPM package.
 # Usage: scripts/build_app.sh [--install]
 #   --install  also copy the bundle to ~/Applications (quitting a running copy)
 set -euo pipefail
@@ -8,10 +8,10 @@ cd "$(dirname "$0")/.."
 echo "==> swift build -c release"
 swift build -c release
 
-APP=build/Utter.app
+APP=build/Vocaret.app
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-cp .build/release/Utter "$APP/Contents/MacOS/Utter"
+cp .build/release/Vocaret "$APP/Contents/MacOS/Vocaret"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
 # Regenerate the icon if it is missing (scripts/make_icon.swift is the source).
 if [[ ! -f Resources/AppIcon.icns ]]; then
@@ -53,11 +53,11 @@ fi
 # (list yours with: security find-identity -v -p codesigning)
 if [[ -n "$IDENTITY" ]]; then
     echo "==> Signing with: $IDENTITY"
-    codesign --force --timestamp=none --identifier com.jancuhel.utter --sign "$IDENTITY" "$APP"
+    codesign --force --timestamp=none --identifier com.jancuhel.vocaret --sign "$IDENTITY" "$APP"
 else
     echo "==> Ad-hoc signing (permissions must be re-granted after each rebuild;"
     echo "    set CODESIGN_IDENTITY to keep them — see the comment in this script)"
-    codesign --force --identifier com.jancuhel.utter --sign - "$APP"
+    codesign --force --identifier com.jancuhel.vocaret --sign - "$APP"
 fi
 codesign --verify --deep "$APP"
 echo "==> Built $APP"
@@ -66,17 +66,17 @@ if [[ "${1:-}" == "--install" ]]; then
     # pkill, not osascript: AppleScript "quit app" needs Automation permission
     # and fails silently without it, leaving the OLD binary running so that
     # `open -a` just re-activates stale code after the install.
-    pkill -x Utter 2>/dev/null || true
+    pkill -x Vocaret 2>/dev/null || true
     sleep 1
     mkdir -p "$HOME/Applications"
-    rm -rf "$HOME/Applications/Utter.app"
-    cp -R "$APP" "$HOME/Applications/Utter.app"
-    echo "==> Installed to ~/Applications/Utter.app"
-    open -a "$HOME/Applications/Utter.app"
+    rm -rf "$HOME/Applications/Vocaret.app"
+    cp -R "$APP" "$HOME/Applications/Vocaret.app"
+    echo "==> Installed to ~/Applications/Vocaret.app"
+    open -a "$HOME/Applications/Vocaret.app"
     sleep 3
-    if pgrep -x Utter >/dev/null; then
+    if pgrep -x Vocaret >/dev/null; then
         echo "==> Relaunched (menu-bar icon should be visible)"
     else
-        echo "==> WARNING: app did not start — run: open ~/Applications/Utter.app"
+        echo "==> WARNING: app did not start — run: open ~/Applications/Vocaret.app"
     fi
 fi

@@ -1,4 +1,4 @@
-# Utter
+# Vocaret
 
 **Local speech-to-text for macOS.** Hold a key, speak, let go — your words appear
 where your cursor is. Czech and English, mixed freely. Nothing is sent anywhere.
@@ -34,17 +34,17 @@ including the two one-time model downloads and one caveat about `~/Documents`.
 
 ## Install
 
-Utter is distributed as source. Building it yourself takes about a minute and
+Vocaret is distributed as source. Building it yourself takes about a minute and
 means macOS trusts the app you built — no Gatekeeper warnings, no unsigned
 download to talk yourself into.
 
 ```bash
-git clone https://github.com/<your-account>/utter.git
-cd utter
+git clone https://github.com/<your-account>/vocaret.git
+cd vocaret
 ./scripts/build_app.sh --install
 ```
 
-That builds `~/Applications/Utter.app` and launches it. Look for the microphone
+That builds `~/Applications/Vocaret.app` and launches it. Look for the microphone
 icon in your menu bar — the app has no window and no Dock icon.
 
 Optional, for the AI cleanup features:
@@ -53,7 +53,7 @@ Optional, for the AI cleanup features:
 ./scripts/setup_llm.sh      # installs llama.cpp via Homebrew + downloads a 2.4 GB model
 ```
 
-Without it, Utter still transcribes perfectly; only the cleanup features are
+Without it, Vocaret still transcribes perfectly; only the cleanup features are
 skipped, and it tells you so.
 
 ### First run
@@ -97,7 +97,7 @@ Meeting mode records **everyone on the call**, not just you.
 In many countries you must tell the other participants first. In some — Germany
 (§201 StGB) among them — recording a private conversation without consent is a
 criminal offence, and within the EU such a recording is personal data under the
-GDPR. Utter shows a one-time warning and deletes the raw audio after
+GDPR. Vocaret shows a one-time warning and deletes the raw audio after
 transcribing by default, but **the legal responsibility is yours**.
 
 Practical advice: say out loud that you are recording, and wear headphones —
@@ -110,29 +110,29 @@ There is no settings window yet. Everything lives in `defaults`:
 
 ```bash
 # Smaller/faster speech model (default: openai_whisper-large-v3-v20240930_626MB)
-defaults write com.jancuhel.utter whisperModel openai_whisper-small
+defaults write com.jancuhel.vocaret whisperModel openai_whisper-small
 
 # Change the dictation hotkey (Carbon key code + modifier mask:
 # ctrl 0x1000, opt 0x800, shift 0x200, cmd 0x100, ORed together).
 # Default is D (2) with ctrl+opt (6144).
-defaults write com.jancuhel.utter dictationKeyCode -int 2
-defaults write com.jancuhel.utter dictationModifiers -int 6144
+defaults write com.jancuhel.vocaret dictationKeyCode -int 2
+defaults write com.jancuhel.vocaret dictationModifiers -int 6144
 
 # Languages considered in Auto mode (default cs,en). If you speak something
 # else, set it here or Auto will force your speech into Czech or English.
-defaults write com.jancuhel.utter autoLanguages -array de en
+defaults write com.jancuhel.vocaret autoLanguages -array de en
 
 # Keep raw meeting audio instead of deleting it after transcription
-defaults write com.jancuhel.utter keepRecordings -bool true
+defaults write com.jancuhel.vocaret keepRecordings -bool true
 
 # Stop logging every dictation to disk
-defaults write com.jancuhel.utter keepDictationHistory -bool false
+defaults write com.jancuhel.vocaret keepDictationHistory -bool false
 
 # Free the model's RAM after 10 idle minutes instead of keeping it warm
-defaults write com.jancuhel.utter keepModelLoaded -bool false
+defaults write com.jancuhel.vocaret keepModelLoaded -bool false
 ```
 
-Restart Utter after changing hotkeys.
+Restart Vocaret after changing hotkeys.
 
 ## What this is not
 
@@ -163,13 +163,13 @@ AI cleanup off.
 ## Uninstall
 
 ```bash
-rm -rf ~/Applications/Utter.app
-rm -rf ~/Library/Application\ Support/Utter    # models, dictation history
-rm -rf ~/Documents/Utter                        # meeting transcripts and audio
-defaults delete com.jancuhel.utter
+rm -rf ~/Applications/Vocaret.app
+rm -rf ~/Library/Application\ Support/Vocaret    # models, dictation history
+rm -rf ~/Documents/Vocaret                        # meeting transcripts and audio
+defaults delete com.jancuhel.vocaret
 ```
 
-Then remove Utter from System Settings → Privacy & Security → Accessibility,
+Then remove Vocaret from System Settings → Privacy & Security → Accessibility,
 Microphone and System Audio Recording.
 
 ## Development
@@ -177,11 +177,11 @@ Microphone and System Audio Recording.
 ```bash
 swift test                                  # 27 unit tests, no network or models needed
 swift build
-.build/debug/Utter --transcribe audio.wav [--language auto|cs|en]
+.build/debug/Vocaret --transcribe audio.wav [--language auto|cs|en]
 
 # Runtime self-tests that exercise real capture / LLM / paste paths.
 # They synthesize speech with `say` and trigger the normal permission prompts.
-open -W -a ~/Applications/Utter.app --args --selftest all 8 --out /tmp/selftest.log
+open -W -a ~/Applications/Vocaret.app --args --selftest all 8 --out /tmp/selftest.log
 # modes: mic | tap | llm | meeting | keys | all
 ```
 
@@ -211,7 +211,7 @@ Architecture and design notes: [docs/](docs/).
 - **Meeting has no `Them` lines** — check System Settings → Privacy & Security →
   Screen & System Audio Recording. The saved transcript warns you when the
   system track was silent throughout.
-- **Logs** — `log stream --predicate 'subsystem == "com.jancuhel.utter"' --level info`
+- **Logs** — `log stream --predicate 'subsystem == "com.jancuhel.vocaret"' --level info`
 
 ## License
 

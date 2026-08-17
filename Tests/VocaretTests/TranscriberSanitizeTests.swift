@@ -1,5 +1,5 @@
 import XCTest
-@testable import UtterCore
+@testable import VocaretCore
 
 final class TranscriberSanitizeTests: XCTestCase {
     func testStripsSpecialTokens() {

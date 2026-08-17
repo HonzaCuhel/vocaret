@@ -44,7 +44,7 @@ public final class HotkeyManager {
         unregister(id: id)
 
         var ref: EventHotKeyRef?
-        let hotKeyID = EventHotKeyID(signature: OSType(0x4A53_4954), id: id) // 'JSIT'
+        let hotKeyID = EventHotKeyID(signature: OSType(0x5643_5254), id: id) // 'VCRT'
         let status = RegisterEventHotKey(keyCode, modifiers, hotKeyID, GetEventDispatcherTarget(), 0, &ref)
         guard status == noErr, let ref else {
             throw HotkeyError.registrationFailed(status)

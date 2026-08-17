@@ -5,19 +5,19 @@
     <key>CFBundleDevelopmentRegion</key>
     <string>en</string>
     <key>CFBundleExecutable</key>
-    <string>Utter</string>
+    <string>Vocaret</string>
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
     <key>CFBundleIconName</key>
     <string>AppIcon</string>
     <key>CFBundleIdentifier</key>
-    <string>com.jancuhel.utter</string>
+    <string>com.jancuhel.vocaret</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>
-    <string>Utter</string>
+    <string>Vocaret</string>
     <key>CFBundleDisplayName</key>
-    <string>Utter</string>
+    <string>Vocaret</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
@@ -31,8 +31,8 @@
     <key>NSHighResolutionCapable</key>
     <true/>
     <key>NSMicrophoneUsageDescription</key>
-    <string>Utter records your voice to transcribe dictation and your side of meetings — everything stays on this Mac.</string>
+    <string>Vocaret records your voice to transcribe dictation and your side of meetings — everything stays on this Mac.</string>
     <key>NSAudioCaptureUsageDescription</key>
-    <string>Utter records system audio during meeting transcription so the other participants can be transcribed — everything stays on this Mac.</string>
+    <string>Vocaret records system audio during meeting transcription so the other participants can be transcribed — everything stays on this Mac.</string>
 </dict>
 </plist>

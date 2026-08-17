@@ -1,5 +1,5 @@
 import XCTest
-@testable import UtterCore
+@testable import VocaretCore
 
 final class SettingsStoreTests: XCTestCase {
     private var suiteName: String!
@@ -8,7 +8,7 @@ final class SettingsStoreTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
-        suiteName = "UtterTests-\(UUID().uuidString)"
+        suiteName = "VocaretTests-\(UUID().uuidString)"
         suiteDefaults = UserDefaults(suiteName: suiteName)
         store = SettingsStore(defaults: suiteDefaults)
     }

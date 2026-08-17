@@ -2,7 +2,7 @@ import AppKit
 
 /// Records both sides of a meeting (mic = Me, system audio = Them), then
 /// transcribes, merges, optionally structures with the local LLM, and saves
-/// a Markdown file to ~/Documents/Utter/Meetings.
+/// a Markdown file to ~/Documents/Vocaret/Meetings.
 @MainActor
 public final class MeetingController {
     public enum State: Equatable {
@@ -49,7 +49,7 @@ public final class MeetingController {
 
     /// Called on app quit while recording: closes both WAV writers so the
     /// headers are finalized. Files are kept and can be transcribed later with
-    /// `Utter --transcribe <file>`.
+    /// `Vocaret --transcribe <file>`.
     public func stopForTermination() {
         guard state == .recording else { return }
         stopCapture()
@@ -71,7 +71,7 @@ public final class MeetingController {
         (for example Germany) recording a private conversation without consent \
         is a criminal offence. You are responsible for obtaining consent.
 
-        Utter keeps the transcript on this Mac and deletes the raw audio unless \
+        Vocaret keeps the transcript on this Mac and deletes the raw audio unless \
         you turn that off.
         """
         alert.alertStyle = .warning
@@ -114,7 +114,7 @@ public final class MeetingController {
                 micRecorder.stop()
                 SoundPlayer.play(.error)
                 if case AudioCaptureError.tapCreationFailed = error {
-                    HUD.shared.flash("System audio capture refused — allow Utter under System Audio Recording", seconds: 5)
+                    HUD.shared.flash("System audio capture refused — allow Vocaret under System Audio Recording", seconds: 5)
                     Permissions.openAudioCaptureSettings()
                 } else {
                     HUD.shared.flash("Could not start meeting capture: \(error.localizedDescription)", seconds: 4)
@@ -189,7 +189,7 @@ public final class MeetingController {
             let document = """
             # Meeting \(Self.titleFormatter.string(from: startedAt))
 
-            > Recorded with Utter. This transcript contains other people's speech; \
+            > Recorded with Vocaret. This transcript contains other people's speech; \
             handle it accordingly and delete it when you no longer need it.
 
             \(notes.isEmpty ? "" : notes.joined(separator: "\n\n") + "\n\n")\(body)

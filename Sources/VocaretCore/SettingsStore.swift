@@ -74,7 +74,7 @@ public final class SettingsStore: @unchecked Sendable {
         set { defaults.set(newValue, forKey: Key.cleanMeetings) }
     }
 
-    /// Append every dictation to ~/Library/Application Support/Utter/
+    /// Append every dictation to ~/Library/Application Support/Vocaret/
     /// dictation-history.md so nothing is ever lost to a failed insertion.
     public var keepDictationHistory: Bool {
         get { boolValue(Key.keepDictationHistory, default: true) }
@@ -168,7 +168,7 @@ public final class SettingsStore: @unchecked Sendable {
     public var appSupportDir: URL {
         createdDirectory(
             FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-                .appendingPathComponent("Utter", isDirectory: true)
+                .appendingPathComponent("Vocaret", isDirectory: true)
         )
     }
 
@@ -179,14 +179,14 @@ public final class SettingsStore: @unchecked Sendable {
     public var meetingsDir: URL {
         createdDirectory(
             FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-                .appendingPathComponent("Utter/Meetings", isDirectory: true)
+                .appendingPathComponent("Vocaret/Meetings", isDirectory: true)
         )
     }
 
     public var recordingsDir: URL {
         createdDirectory(
             FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-                .appendingPathComponent("Utter/Recordings", isDirectory: true)
+                .appendingPathComponent("Vocaret/Recordings", isDirectory: true)
         )
     }
 

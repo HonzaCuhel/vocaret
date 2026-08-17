@@ -2,7 +2,7 @@
 import PackageDescription
 
 let package = Package(
-    name: "Utter",
+    name: "Vocaret",
     platforms: [.macOS(.v14)],
     dependencies: [
         // Pinned: "from:" would let a future major/minor break `git clone && build`
@@ -11,7 +11,7 @@ let package = Package(
     ],
     targets: [
         .target(
-            name: "UtterCore",
+            name: "VocaretCore",
             dependencies: [
                 .product(name: "WhisperKit", package: "WhisperKit"),
             ],
@@ -23,12 +23,12 @@ let package = Package(
             ]
         ),
         .executableTarget(
-            name: "Utter",
-            dependencies: ["UtterCore"]
+            name: "Vocaret",
+            dependencies: ["VocaretCore"]
         ),
         .testTarget(
-            name: "UtterTests",
-            dependencies: ["UtterCore"]
+            name: "VocaretTests",
+            dependencies: ["VocaretCore"]
         ),
     ]
 )

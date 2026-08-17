@@ -1,17 +1,17 @@
 import AppKit
 
 /// Entry point invoked by the executable target.
-public enum UtterMain {
+public enum VocaretMain {
     @MainActor
     public static func run() {
         let arguments = CommandLine.arguments
 
-        // Headless runtime self-tests: `Utter --selftest <mic|tap|llm|meeting|keys|all>`
+        // Headless runtime self-tests: `Vocaret --selftest <mic|tap|llm|meeting|keys|all>`
         if SelfTest.runIfRequested(arguments: arguments) {
             return
         }
 
-        // Headless verification mode: `Utter --transcribe file.wav [--language auto|cs|en]`
+        // Headless verification mode: `Vocaret --transcribe file.wav [--language auto|cs|en]`
         if let flagIndex = arguments.firstIndex(of: "--transcribe"), arguments.count > flagIndex + 1 {
             if let langIndex = arguments.firstIndex(of: "--language"), arguments.count > langIndex + 1 {
                 SettingsStore.shared.language = arguments[langIndex + 1]

@@ -1,4 +1,4 @@
-# Utter — Local Speech-to-Text for macOS (Design)
+# Vocaret — Local Speech-to-Text for macOS (Design)
 
 **Date:** 2026-08-13
 **Status:** Approved autonomously (session running under `/goal` — user unavailable for interactive review; decisions recorded here for later review).
@@ -27,7 +27,7 @@ Apple M3 Pro, 18 GB RAM, macOS 26.2, Xcode 26.3 / Swift 6.2.4, Homebrew, ~23 GB 
 
 ## Architecture
 
-Menu-bar-only app (`LSUIElement`), SwiftPM executable bundled into `Utter.app` by a build script. No sandbox (personal tool; needed for CGEvent paste + process tap).
+Menu-bar-only app (`LSUIElement`), SwiftPM executable bundled into `Vocaret.app` by a build script. No sandbox (personal tool; needed for CGEvent paste + process tap).
 
 ```
 HotkeyManager (Carbon RegisterEventHotKey — no special permission)
@@ -49,7 +49,7 @@ Transcriber (per file, word timestamps) ──► TranscriptMerger (Me/Them, chr
     ▼
 LLMCleaner (structure: summary, action items, cleaned transcript)
     ▼
-~/Documents/Utter/Meetings/<date>.md  (+ raw WAVs kept per setting)
+~/Documents/Vocaret/Meetings/<date>.md  (+ raw WAVs kept per setting)
 ```
 
 ### Components
@@ -57,7 +57,7 @@ LLMCleaner (structure: summary, action items, cleaned transcript)
 - **HotkeyManager** — Carbon hotkeys: `⌃⌥Space` dictation toggle, `⌃⌥M` meeting toggle, `Esc` (registered only while recording) cancels. Chosen over `⌥Space` to avoid Raycast/Alfred conflicts. Configurable via `UserDefaults` (keyCode + modifiers).
 - **MicRecorder** — AVAudioEngine input tap; converts to 16 kHz mono Float32 via AVAudioConverter for dictation (in-memory, ~3.8 MB/min); writes native-rate WAV for meetings.
 - **SystemAudioTap** — `CATapDescription(stereoGlobalTapButExcludeProcesses: [])` + `AudioHardwareCreateProcessTap` + private aggregate device with the tap in its tap list; IOProc writes to WAV. Requires `NSAudioCaptureUsageDescription`. macOS 14.4+ only (we're on 26.x).
-- **Transcriber** — WhisperKit wrapper. Default model `openai_whisper-large-v3-v20240930_626MB` (quantized turbo, multilingual — handles Czech well). Fallback to `openai_whisper-small` if load fails. Preloaded at launch + 1 s silence warm-up so first dictation is instant. Language: `auto` (per-utterance detection) or forced cs/en via menu. Models stored under `~/Library/Application Support/Utter/Models`.
+- **Transcriber** — WhisperKit wrapper. Default model `openai_whisper-large-v3-v20240930_626MB` (quantized turbo, multilingual — handles Czech well). Fallback to `openai_whisper-small` if load fails. Preloaded at launch + 1 s silence warm-up so first dictation is instant. Language: `auto` (per-utterance detection) or forced cs/en via menu. Models stored under `~/Library/Application Support/Vocaret/Models`.
 - **TextInserter** — saves clipboard, sets transcript, posts ⌘V via CGEvent (needs Accessibility), restores clipboard after 0.5 s. If Accessibility not granted: leaves text on clipboard + user notification "press ⌘V".
 - **LLMCleaner** — spawns `llama-server` (brew llama.cpp) on `127.0.0.1:8765` with Qwen3-4B-Instruct-2507 Q4_K_M GGUF (~2.4 GB), talks OpenAI-compatible `/v1/chat/completions`, kills the server after 120 s idle so RAM returns to zero. Dictation cleanup is **off by default** (adds latency); meeting structuring **on by default**.
 - **TranscriptMerger** — pure function: two segment lists (mic="Me", system="Them") → chronologically sorted, consecutive same-speaker segments < 2 s apart coalesced → markdown. Unit-tested.
@@ -84,8 +84,8 @@ Idle with model loaded: ~700–900 MB (mostly mmapped CoreML weights, reclaimabl
 
 ### Distribution / setup
 
-- `scripts/build_app.sh` — release build → `build/Utter.app` (Info.plist with usage strings, LSUIElement) → ad-hoc codesign → optional install to `~/Applications`.
-- `scripts/setup_llm.sh` — `brew install llama.cpp` (if missing) + download Qwen3-4B-Instruct-2507-Q4_K_M.gguf from Hugging Face to `~/Library/Application Support/Utter/Models`.
+- `scripts/build_app.sh` — release build → `build/Vocaret.app` (Info.plist with usage strings, LSUIElement) → ad-hoc codesign → optional install to `~/Applications`.
+- `scripts/setup_llm.sh` — `brew install llama.cpp` (if missing) + download Qwen3-4B-Instruct-2507-Q4_K_M.gguf from Hugging Face to `~/Library/Application Support/Vocaret/Models`.
 - Whisper model auto-downloads on first launch via WhisperKit (~632 MB).
 
 ## Out of scope (v1)
