@@ -5,11 +5,25 @@ import Foundation
 final class ProcessBox: @unchecked Sendable {
     private let lock = NSLock()
     private var process: Process?
+    private var pid: pid_t?
 
-    func set(_ newProcess: Process?) {
+    /// Track a server we spawned. Its PID is persisted so a later app launch
+    /// can reap it if this one crashes or is force-quit.
+    func set(_ newProcess: Process, pidFile: URL) {
         lock.lock()
         defer { lock.unlock() }
         process = newProcess
+        pid = newProcess.processIdentifier
+        try? String(newProcess.processIdentifier).write(to: pidFile, atomically: true, encoding: .utf8)
+    }
+
+    /// Track a server started by a previous app instance (found via pidfile +
+    /// healthy port) so the idle timer can still shut it down.
+    func adopt(pid adoptedPid: pid_t) {
+        lock.lock()
+        defer { lock.unlock() }
+        process = nil
+        pid = adoptedPid
     }
 
     func terminate() {
@@ -17,14 +31,19 @@ final class ProcessBox: @unchecked Sendable {
         defer { lock.unlock() }
         if let process, process.isRunning {
             process.terminate()
+        } else if let pid, kill(pid, 0) == 0 {
+            kill(pid, SIGTERM)
         }
         process = nil
+        pid = nil
     }
 
     var isRunning: Bool {
         lock.lock()
         defer { lock.unlock() }
-        return process?.isRunning ?? false
+        if let process { return process.isRunning }
+        if let pid { return kill(pid, 0) == 0 }
+        return false
     }
 }
 
@@ -48,6 +67,39 @@ public actor LLMCleaner {
     /// Kill the spawned server immediately (used on app quit).
     public nonisolated func terminateServerNow() {
         processBox.terminate()
+        try? FileManager.default.removeItem(at: Self.pidFile)
+    }
+
+    private static var pidFile: URL {
+        SettingsStore.shared.appSupportDir.appendingPathComponent("llama-server.pid")
+    }
+
+    /// PID recorded by a previous app instance, if that process is still a
+    /// live llama-server (guards against PID reuse by checking the command).
+    private static func stalePid() -> pid_t? {
+        guard let text = try? String(contentsOf: pidFile, encoding: .utf8),
+              let pid = pid_t(text.trimmingCharacters(in: .whitespacesAndNewlines)),
+              kill(pid, 0) == 0 else { return nil }
+        var mib: [Int32] = [CTL_KERN, KERN_PROCARGS2, pid]
+        var size = 0
+        guard sysctl(&mib, 3, nil, &size, nil, 0) == 0, size > 0 else { return nil }
+        var buffer = [UInt8](repeating: 0, count: size)
+        guard sysctl(&mib, 3, &buffer, &size, nil, 0) == 0 else { return nil }
+        // KERN_PROCARGS2 layout: argc (Int32) then NUL-separated exec path + args.
+        let path = String(decoding: buffer.dropFirst(4).prefix { $0 != 0 }, as: UTF8.self)
+        return path.hasSuffix("llama-server") ? pid : nil
+    }
+
+    /// Called at app launch: a server left behind by a crashed/force-quit
+    /// instance is holding ~2.5 GB — kill it rather than silently adopting it.
+    public nonisolated func reapStaleServer() {
+        guard let pid = Self.stalePid() else {
+            try? FileManager.default.removeItem(at: Self.pidFile)
+            return
+        }
+        Log.info("Reaping llama-server (pid \(pid)) left by a previous instance")
+        kill(pid, SIGTERM)
+        try? FileManager.default.removeItem(at: Self.pidFile)
     }
 
     public func cleanDictation(_ text: String) async -> String {
@@ -160,6 +212,11 @@ public actor LLMCleaner {
         idleShutdownTask = nil
 
         if await healthy() {
+            // Someone is serving on our port. If it's a server one of our
+            // instances started, adopt it so the idle timer can still kill it.
+            if !processBox.isRunning, let pid = Self.stalePid() {
+                processBox.adopt(pid: pid)
+            }
             return
         }
 
@@ -179,7 +236,7 @@ public actor LLMCleaner {
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
         try process.run()
-        processBox.set(process)
+        processBox.set(process, pidFile: Self.pidFile)
 
         let deadline = Date().addingTimeInterval(startupTimeout)
         while Date() < deadline {

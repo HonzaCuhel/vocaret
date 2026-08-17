@@ -11,8 +11,11 @@ public enum JustSayItMain {
             return
         }
 
-        // Headless verification mode: `JustSayIt --transcribe file.wav`
+        // Headless verification mode: `JustSayIt --transcribe file.wav [--language auto|cs|en]`
         if let flagIndex = arguments.firstIndex(of: "--transcribe"), arguments.count > flagIndex + 1 {
+            if let langIndex = arguments.firstIndex(of: "--language"), arguments.count > langIndex + 1 {
+                SettingsStore.shared.language = arguments[langIndex + 1]
+            }
             runTranscribeCLI(path: arguments[flagIndex + 1])
             return
         }

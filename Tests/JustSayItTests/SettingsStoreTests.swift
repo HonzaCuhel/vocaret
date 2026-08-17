@@ -20,6 +20,7 @@ final class SettingsStoreTests: XCTestCase {
 
     func testDefaults() {
         XCTAssertEqual(store.language, "auto")
+        XCTAssertEqual(store.autoLanguages, ["cs", "en"])
         XCTAssertEqual(store.whisperModel, SettingsStore.defaultWhisperModel)
         XCTAssertFalse(store.cleanDictation)
         XCTAssertTrue(store.cleanMeetings)
@@ -36,6 +37,7 @@ final class SettingsStoreTests: XCTestCase {
 
     func testRoundTrip() {
         store.language = "cs"
+        store.autoLanguages = ["en"]
         store.cleanDictation = true
         store.cleanMeetings = false
         store.keepRecordings = false
@@ -49,6 +51,7 @@ final class SettingsStoreTests: XCTestCase {
         // Read through a fresh store over the same suite to prove persistence.
         let reread = SettingsStore(defaults: UserDefaults(suiteName: suiteName)!)
         XCTAssertEqual(reread.language, "cs")
+        XCTAssertEqual(reread.autoLanguages, ["en"])
         XCTAssertTrue(reread.cleanDictation)
         XCTAssertFalse(reread.cleanMeetings)
         XCTAssertFalse(reread.keepRecordings)

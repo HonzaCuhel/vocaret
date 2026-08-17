@@ -16,6 +16,7 @@ public final class SettingsStore: @unchecked Sendable {
 
     private enum Key {
         static let language = "language"
+        static let autoLanguages = "autoLanguages"
         static let whisperModel = "whisperModel"
         static let cleanDictation = "cleanDictation"
         static let cleanMeetings = "cleanMeetings"
@@ -36,6 +37,15 @@ public final class SettingsStore: @unchecked Sendable {
     public var language: String {
         get { defaults.string(forKey: Key.language) ?? "auto" }
         set { defaults.set(newValue, forKey: Key.language) }
+    }
+
+    /// When `language == "auto"`, detection is restricted to these codes
+    /// (empty = any language Whisper knows). Default cs+en: it prevents
+    /// Whisper from mistaking Czech for Slovak/Polish and drives per-utterance
+    /// language choice in bilingual meetings.
+    public var autoLanguages: [String] {
+        get { defaults.stringArray(forKey: Key.autoLanguages) ?? ["cs", "en"] }
+        set { defaults.set(newValue, forKey: Key.autoLanguages) }
     }
 
     public var whisperModel: String {

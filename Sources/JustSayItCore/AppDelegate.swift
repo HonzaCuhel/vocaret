@@ -9,6 +9,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     public func applicationDidFinishLaunching(_ notification: Notification) {
         statusController = StatusItemController(dictation: dictation, meeting: meeting)
         registerHotkeys()
+        LLMCleaner.shared.reapStaleServer()
 
         // Preload Whisper so the first dictation is instant. First launch
         // downloads the model (~632 MB), so surface that in the HUD.

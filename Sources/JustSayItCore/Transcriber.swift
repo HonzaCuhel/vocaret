@@ -25,26 +25,79 @@ public actor Transcriber {
     }
 
     /// Dictation path: 16 kHz mono samples in, plain text out.
+    ///
+    /// Short utterances (≤ 30 s, the Whisper window) go through a single
+    /// decode so latency stays minimal; longer ones are chunked at silences
+    /// like meeting audio so each utterance keeps its own language.
     public func transcribe(samples: [Float]) async throws -> String {
         // Whisper hallucinates on near-empty audio; skip clips under 0.3 s.
         guard samples.count > Int(MicRecorder.whisperSampleRate * 0.3) else { return "" }
         let kit = try await ensureLoaded()
-        let results = try await kit.transcribe(audioArray: samples, decodeOptions: decodeOptions())
-        scheduleUnloadIfConfigured()
-        let text = results.map(\.text).joined(separator: " ")
-        return Self.sanitize(text)
+        defer { scheduleUnloadIfConfigured() }
+
+        let windowSamples = Int(MicRecorder.whisperSampleRate * 30)
+        if samples.count <= windowSamples {
+            // Whisper hallucinates on silence ("Titulky vytvořil JohnyX.",
+            // "Thank you." …) — only decode if the VAD finds actual speech.
+            guard !UtteranceChunker().chunks(in: samples).isEmpty else { return "" }
+            let segments = try await transcribeChunk(kit, samples, offset: 0)
+            return segments.map(\.text).joined(separator: " ")
+        }
+        let segments = try await transcribeChunked(kit, samples)
+        return segments.map(\.text).joined(separator: " ")
     }
 
-    /// Meeting path: audio file in, timestamped segments out.
+    /// Meeting path: audio file in, timestamped segments out. Always chunked
+    /// per utterance so bilingual conversations keep both languages.
     public func transcribe(fileURL: URL) async throws -> [SpokenSegment] {
         let kit = try await ensureLoaded()
-        let results = try await kit.transcribe(audioPath: fileURL.path, decodeOptions: decodeOptions())
-        scheduleUnloadIfConfigured()
+        defer { scheduleUnloadIfConfigured() }
+        let samples = try AudioProcessor.loadAudioAsFloatArray(fromPath: fileURL.path)
+        return try await transcribeChunked(kit, samples)
+    }
+
+    // MARK: - Chunked / language-aware decoding
+
+    private func transcribeChunked(_ kit: WhisperKit, _ samples: [Float]) async throws -> [SpokenSegment] {
+        let ranges = UtteranceChunker().chunks(in: samples)
+        // No speech at all → no transcript. Feeding silence to Whisper only
+        // yields hallucinated subtitle credits.
+        guard !ranges.isEmpty else { return [] }
+        Log.info("Transcribing \(ranges.count) utterance chunk(s) from \(String(format: "%.1f", Double(samples.count) / MicRecorder.whisperSampleRate))s of audio")
+        var segments: [SpokenSegment] = []
+        for range in ranges {
+            let offset = Double(range.lowerBound) / MicRecorder.whisperSampleRate
+            segments += try await transcribeChunk(kit, Array(samples[range]), offset: offset)
+        }
+        return segments
+    }
+
+    /// One Whisper window (≤ 30 s). Language policy:
+    /// - forced (settings.language = cs/en): decode with that token.
+    /// - auto: decode with Whisper's own detection (no extra encoder pass);
+    ///   if it picked a language outside `autoLanguages`, re-detect restricted
+    ///   to the allowed set and decode again with that token forced.
+    private func transcribeChunk(_ kit: WhisperKit, _ samples: [Float], offset: Double) async throws -> [SpokenSegment] {
+        let settings = SettingsStore.shared
+        var results: [TranscriptionResult]
+        if settings.language == "auto" {
+            results = try await kit.transcribe(audioArray: samples, decodeOptions: decodeOptions(language: nil))
+            let allowed = settings.autoLanguages
+            if !allowed.isEmpty, let detected = results.first?.language, !allowed.contains(detected) {
+                let probs = try await kit.detectLangauge(audioArray: samples).langProbs
+                if let best = allowed.max(by: { (probs[$0] ?? -.infinity) < (probs[$1] ?? -.infinity) }) {
+                    Log.info("Whisper detected '\(detected)' (not allowed); re-decoding as '\(best)'")
+                    results = try await kit.transcribe(audioArray: samples, decodeOptions: decodeOptions(language: best))
+                }
+            }
+        } else {
+            results = try await kit.transcribe(audioArray: samples, decodeOptions: decodeOptions(language: settings.language))
+        }
         return results.flatMap { result in
             result.segments.map { segment in
                 SpokenSegment(
-                    start: Double(segment.start),
-                    end: Double(segment.end),
+                    start: Double(segment.start) + offset,
+                    end: Double(segment.end) + offset,
                     text: Self.sanitize(segment.text)
                 )
             }
@@ -87,7 +140,7 @@ public actor Transcriber {
         // One-second silence warm-up so the first real dictation is instant.
         _ = try? await kit.transcribe(
             audioArray: [Float](repeating: 0, count: Int(MicRecorder.whisperSampleRate)),
-            decodeOptions: decodeOptions()
+            decodeOptions: decodeOptions(language: "en")
         )
         Log.info("Whisper model '\(model)' ready")
         return kit
@@ -107,19 +160,13 @@ public actor Transcriber {
 
     // MARK: - Options
 
-    private func decodeOptions() -> DecodingOptions {
-        let language = SettingsStore.shared.language
-        if language == "auto" {
-            return DecodingOptions(
-                detectLanguage: true,
-                chunkingStrategy: .vad
-            )
+    /// `language == nil` → let Whisper detect; otherwise force the token.
+    /// Chunking is ours (UtteranceChunker), so WhisperKit's own is left off.
+    private func decodeOptions(language: String?) -> DecodingOptions {
+        if let language {
+            return DecodingOptions(language: language, detectLanguage: false)
         }
-        return DecodingOptions(
-            language: language,
-            detectLanguage: false,
-            chunkingStrategy: .vad
-        )
+        return DecodingOptions(detectLanguage: true)
     }
 
     /// WhisperKit segment text can contain special tokens like <|startoftranscript|>
