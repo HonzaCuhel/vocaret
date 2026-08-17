@@ -51,7 +51,7 @@ public final class TranscriptHistory: @unchecked Sendable {
             handle.write(Data(line.utf8))
             try? handle.close()
         } else {
-            try? ("# JustSayIt dictation history\n\n" + line).write(to: url, atomically: true, encoding: .utf8)
+            try? ("# Utter dictation history\n\n" + line).write(to: url, atomically: true, encoding: .utf8)
         }
     }
 

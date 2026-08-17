@@ -101,7 +101,7 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
         menu.addItem(permissions)
 
         menu.addItem(.separator())
-        let quit = NSMenuItem(title: "Quit JustSayIt", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        let quit = NSMenuItem(title: "Quit Utter", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         menu.addItem(quit)
 
         return menu
@@ -158,7 +158,7 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
         }
         statusItem.button?.image = NSImage(
             systemSymbolName: symbolName,
-            accessibilityDescription: "JustSayIt"
+            accessibilityDescription: "Utter"
         )
         stateItem.title = stateText
 
@@ -279,7 +279,7 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
             : "NOT granted — needed to auto-paste; System Settings → Privacy → Accessibility"
 
         let alert = NSAlert()
-        alert.messageText = "JustSayIt Permissions"
+        alert.messageText = "Utter Permissions"
         alert.informativeText = """
         Microphone: \(microphone)
         Accessibility (auto-paste): \(accessibility)

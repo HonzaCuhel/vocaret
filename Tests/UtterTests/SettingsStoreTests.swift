@@ -1,5 +1,5 @@
 import XCTest
-@testable import JustSayItCore
+@testable import UtterCore
 
 final class SettingsStoreTests: XCTestCase {
     private var suiteName: String!
@@ -8,7 +8,7 @@ final class SettingsStoreTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
-        suiteName = "JustSayItTests-\(UUID().uuidString)"
+        suiteName = "UtterTests-\(UUID().uuidString)"
         suiteDefaults = UserDefaults(suiteName: suiteName)
         store = SettingsStore(defaults: suiteDefaults)
     }
@@ -24,7 +24,7 @@ final class SettingsStoreTests: XCTestCase {
         XCTAssertEqual(store.whisperModel, SettingsStore.defaultWhisperModel)
         XCTAssertFalse(store.cleanDictation)
         XCTAssertTrue(store.cleanMeetings)
-        XCTAssertTrue(store.keepRecordings)
+        XCTAssertFalse(store.keepRecordings) // other people's voices are not kept by default
         XCTAssertTrue(store.keepModelLoaded)
         XCTAssertEqual(store.dictationKeyCode, 2) // D — not Space (macOS input-source switch)
         XCTAssertEqual(store.dictationModifiers, 0x1800) // control | option
@@ -42,7 +42,7 @@ final class SettingsStoreTests: XCTestCase {
         store.autoLanguages = ["en"]
         store.cleanDictation = true
         store.cleanMeetings = false
-        store.keepRecordings = false
+        store.keepRecordings = true
         store.whisperModel = "openai_whisper-small"
         store.dictationKeyCode = 11
         store.dictationModifiers = 0x100
@@ -56,7 +56,7 @@ final class SettingsStoreTests: XCTestCase {
         XCTAssertEqual(reread.autoLanguages, ["en"])
         XCTAssertTrue(reread.cleanDictation)
         XCTAssertFalse(reread.cleanMeetings)
-        XCTAssertFalse(reread.keepRecordings)
+        XCTAssertTrue(reread.keepRecordings)
         XCTAssertEqual(reread.whisperModel, "openai_whisper-small")
         XCTAssertEqual(reread.dictationKeyCode, 11)
         XCTAssertEqual(reread.dictationModifiers, 0x100)

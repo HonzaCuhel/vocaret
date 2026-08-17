@@ -1,5 +1,5 @@
 import XCTest
-@testable import JustSayItCore
+@testable import UtterCore
 
 final class LLMPromptsTests: XCTestCase {
     func testDictationPromptInvariants() {

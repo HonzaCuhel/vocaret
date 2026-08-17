@@ -2,7 +2,7 @@ import AppKit
 
 /// Records both sides of a meeting (mic = Me, system audio = Them), then
 /// transcribes, merges, optionally structures with the local LLM, and saves
-/// a Markdown file to ~/Documents/JustSayIt/Meetings.
+/// a Markdown file to ~/Documents/Utter/Meetings.
 @MainActor
 public final class MeetingController {
     public enum State: Equatable {
@@ -49,11 +49,38 @@ public final class MeetingController {
 
     /// Called on app quit while recording: closes both WAV writers so the
     /// headers are finalized. Files are kept and can be transcribed later with
-    /// `JustSayIt --transcribe <file>`.
+    /// `Utter --transcribe <file>`.
     public func stopForTermination() {
         guard state == .recording else { return }
         stopCapture()
         state = .idle
+    }
+
+    /// Recording other participants is regulated (and in some countries a
+    /// criminal offence) without their knowledge. Shown once before the first
+    /// meeting recording; the user must actively confirm.
+    private func consentAcknowledged() -> Bool {
+        if SettingsStore.shared.meetingConsentAcknowledged { return true }
+        let alert = NSAlert()
+        alert.messageText = "Recording a meeting records other people"
+        alert.informativeText = """
+        This captures your microphone AND everything your Mac plays — including \
+        everyone else on the call.
+
+        In many countries you must tell the other participants, and in some \
+        (for example Germany) recording a private conversation without consent \
+        is a criminal offence. You are responsible for obtaining consent.
+
+        Utter keeps the transcript on this Mac and deletes the raw audio unless \
+        you turn that off.
+        """
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "I will get consent")
+        alert.addButton(withTitle: "Cancel")
+        NSApp.activate(ignoringOtherApps: true)
+        guard alert.runModal() == .alertFirstButtonReturn else { return false }
+        SettingsStore.shared.meetingConsentAcknowledged = true
+        return true
     }
 
     private func start() {
@@ -61,6 +88,7 @@ public final class MeetingController {
             HUD.shared.flash("Meeting capture needs macOS 14.4 or newer")
             return
         }
+        guard consentAcknowledged() else { return }
         isStarting = true
         Task { @MainActor in
             defer { isStarting = false }
@@ -86,7 +114,7 @@ public final class MeetingController {
                 micRecorder.stop()
                 SoundPlayer.play(.error)
                 if case AudioCaptureError.tapCreationFailed = error {
-                    HUD.shared.flash("System audio capture refused — allow JustSayIt under System Audio Recording", seconds: 5)
+                    HUD.shared.flash("System audio capture refused — allow Utter under System Audio Recording", seconds: 5)
                     Permissions.openAudioCaptureSettings()
                 } else {
                     HUD.shared.flash("Could not start meeting capture: \(error.localizedDescription)", seconds: 4)
@@ -160,6 +188,9 @@ public final class MeetingController {
 
             let document = """
             # Meeting \(Self.titleFormatter.string(from: startedAt))
+
+            > Recorded with Utter. This transcript contains other people's speech; \
+            handle it accordingly and delete it when you no longer need it.
 
             \(notes.isEmpty ? "" : notes.joined(separator: "\n\n") + "\n\n")\(body)
             """

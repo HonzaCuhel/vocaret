@@ -2,7 +2,7 @@ import AppKit
 import CoreGraphics
 import Foundation
 
-// Renders the JustSayIt app icon: a macOS-style squircle with an indigo→violet
+// Renders the Utter app icon: a macOS-style squircle with an indigo→violet
 // gradient and a white microphone glyph, at every size an .iconset needs.
 
 let outputDir = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "./AppIcon.iconset"

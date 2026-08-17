@@ -7,12 +7,12 @@ import Foundation
 /// human at the keyboard. Speech is synthesized with `say` through the
 /// speakers so the microphone / system tap have something to hear.
 ///
-///     JustSayIt --selftest mic [seconds] [--out file]
-///     JustSayIt --selftest tap [seconds] [--out file]
-///     JustSayIt --selftest llm [--out file]
-///     JustSayIt --selftest meeting [seconds] [--out file]
-///     JustSayIt --selftest keys [--out file]      (needs Accessibility)
-///     JustSayIt --selftest all [--out file]
+///     Utter --selftest mic [seconds] [--out file]
+///     Utter --selftest tap [seconds] [--out file]
+///     Utter --selftest llm [--out file]
+///     Utter --selftest meeting [seconds] [--out file]
+///     Utter --selftest keys [--out file]      (needs Accessibility)
+///     Utter --selftest all [--out file]
 ///
 /// Exit code 0 = every requested check passed, 1 = at least one failed.
 public enum SelfTest {
@@ -44,7 +44,7 @@ public enum SelfTest {
         let app = NSApplication.shared
         app.setActivationPolicy(.accessory)
         Task { @MainActor in
-            emit("=== JustSayIt self-test: \(mode) ===")
+            emit("=== Utter self-test: \(mode) ===")
             switch mode {
             case "mic": await micTest(seconds: seconds)
             case "tap": await tapTest(seconds: seconds)
@@ -259,7 +259,7 @@ public enum SelfTest {
         emit("[keys] checking Accessibility (auto-paste + synthesized keys need it)…")
         var trusted = Permissions.accessibilityGranted(promptIfNeeded: true)
         if !trusted {
-            emit("[keys] NOT granted — enable JustSayIt in System Settings → Privacy & Security → Accessibility (waiting up to 120s)")
+            emit("[keys] NOT granted — enable Utter in System Settings → Privacy & Security → Accessibility (waiting up to 120s)")
             for _ in 0..<60 where !trusted {
                 try? await Task.sleep(nanoseconds: 2_000_000_000)
                 trusted = Permissions.accessibilityGranted(promptIfNeeded: false)
@@ -289,7 +289,7 @@ public enum SelfTest {
 
         // 2. Paste into a real text view in our own window.
         //
-        // JustSayIt normally runs as an .accessory app and never activates —
+        // Utter normally runs as an .accessory app and never activates —
         // in real use the ⌘V goes to whatever app the user is already in.
         // To verify the mechanics in-process we must genuinely own the focus,
         // so switch to .regular for this check. If we cannot take focus we
@@ -319,7 +319,7 @@ public enum SelfTest {
             contentRect: NSRect(x: 200, y: 200, width: 400, height: 200),
             styleMask: [.titled], backing: .buffered, defer: false
         )
-        window.title = "JustSayIt self-test"
+        window.title = "Utter self-test"
         let textView = NSTextView(frame: window.contentView!.bounds)
         textView.isRichText = false
         window.contentView?.addSubview(textView)
@@ -352,7 +352,7 @@ public enum SelfTest {
         pasteboard.clearContents()
         pasteboard.setString("ORIGINAL CLIPBOARD", forType: .string)
 
-        let payload = "Ahoj světe — pasted by JustSayIt"
+        let payload = "Ahoj světe — pasted by Utter"
         let outcome = await TextInserter.insert(payload)
         emit("[keys] insert outcome: \(outcome)")
         try? await Task.sleep(nanoseconds: 2_000_000_000)

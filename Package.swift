@@ -2,14 +2,16 @@
 import PackageDescription
 
 let package = Package(
-    name: "JustSayIt",
+    name: "Utter",
     platforms: [.macOS(.v14)],
     dependencies: [
-        .package(url: "https://github.com/argmaxinc/WhisperKit.git", from: "0.9.0"),
+        // Pinned: "from:" would let a future major/minor break `git clone && build`
+        // for other people without warning.
+        .package(url: "https://github.com/argmaxinc/WhisperKit.git", .upToNextMinor(from: "0.9.0")),
     ],
     targets: [
         .target(
-            name: "JustSayItCore",
+            name: "UtterCore",
             dependencies: [
                 .product(name: "WhisperKit", package: "WhisperKit"),
             ],
@@ -21,12 +23,12 @@ let package = Package(
             ]
         ),
         .executableTarget(
-            name: "JustSayIt",
-            dependencies: ["JustSayItCore"]
+            name: "Utter",
+            dependencies: ["UtterCore"]
         ),
         .testTarget(
-            name: "JustSayItTests",
-            dependencies: ["JustSayItCore"]
+            name: "UtterTests",
+            dependencies: ["UtterCore"]
         ),
     ]
 )

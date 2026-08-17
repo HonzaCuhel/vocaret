@@ -1,164 +1,219 @@
-# JustSayIt
+# Utter
 
-A free, fully-local speech-to-text menu-bar app for macOS — a personal Wispr Flow / SuperWhisper
-replacement. Czech 🇨🇿 + English 🇬🇧, fast (Apple Neural Engine), RAM-friendly, zero cloud.
+**Local speech-to-text for macOS.** Hold a key, speak, let go — your words appear
+where your cursor is. Czech and English, mixed freely. Nothing is sent anywhere.
 
-## Features
+> **Status: v0.1.0, early.** Built by one person, working well daily on one Mac.
+> Expect rough edges. There is no settings window yet — configuration is via
+> `defaults write`. Please read [what this is not](#what-this-is-not) before
+> installing.
 
-- **Dictation anywhere** — press `⌃⌥D`, speak, press `⌃⌥D` again: the transcript is
-  pasted at the text caret of whatever app you're in. `Esc` cancels a recording.
-- **Meeting transcription** — press `⌃⌥M` during any call (Google Meet, Zoom, anything that
-  plays audio). JustSayIt records both your microphone (**Me**) and everything the Mac plays
-  (**Them**), then produces a labeled transcript with timestamps.
-- **Local AI cleanup** — a small local LLM (Qwen3-4B via llama.cpp) fixes punctuation, strips
-  filler words, and structures meeting notes into Summary / Action items / Cleaned transcript.
-- **100 % local** — Whisper runs via WhisperKit on the Neural Engine; the LLM runs via
-  llama-server on localhost. Nothing ever leaves the Mac.
+## What it does
+
+- **Dictation anywhere** — hold `⌃⌥D`, speak, release. The text is inserted at
+  your caret in any app. A quick tap toggles recording instead, if you prefer.
+- **Bilingual by design** — Czech and English are detected *per utterance*, so a
+  meeting that switches languages mid-conversation transcribes correctly. (Most
+  tools apply one language per 30-second window and lose one of them.)
+- **Meeting transcription** — `⌃⌥M` records your microphone *and* your Mac's
+  audio output, producing a speaker-labelled transcript (`Me` / `Them`). No
+  virtual audio driver needed.
+- **Optional local cleanup** — a small language model removes filler words and
+  structures meeting notes into a summary and action items.
+
+Everything runs on your Mac: Whisper via Core ML on the Neural Engine, and
+llama.cpp on localhost. See [PRIVACY.md](PRIVACY.md) for the precise details,
+including the two one-time model downloads and one caveat about `~/Documents`.
 
 ## Requirements
 
-- Apple Silicon Mac, macOS 14.4+ (built and tested on macOS 26)
-- Xcode (or Command Line Tools) to build
-- Homebrew (for llama.cpp, optional — only needed for the AI-cleanup features)
-- Disk: ~630 MB Whisper model + ~2.4 GB LLM model (optional)
+- **Apple Silicon** Mac (M1 or newer) — Intel is not supported
+- **macOS 14.4+** (the meeting feature needs the Core Audio process tap API)
+- Xcode or the Command Line Tools, to build
+- ~700 MB disk for the speech model; ~2.4 GB more if you want the LLM cleanup
 
-## Setup
+## Install
+
+Utter is distributed as source. Building it yourself takes about a minute and
+means macOS trusts the app you built — no Gatekeeper warnings, no unsigned
+download to talk yourself into.
 
 ```bash
-# 1. Build and install the app to ~/Applications
-scripts/build_app.sh --install
-
-# 2. (Optional, for AI cleanup) install llama.cpp + download the LLM model (~2.4 GB)
-scripts/setup_llm.sh
-
-# 3. Launch
-open ~/Applications/JustSayIt.app
+git clone https://github.com/<your-account>/utter.git
+cd utter
+./scripts/build_app.sh --install
 ```
 
-On first launch the Whisper model (~630 MB) downloads automatically; the HUD shows progress.
-After that everything is offline.
+That builds `~/Applications/Utter.app` and launches it. Look for the microphone
+icon in your menu bar — the app has no window and no Dock icon.
 
-### Permissions (one-time)
+Optional, for the AI cleanup features:
 
-| Permission | When macOS asks | Needed for |
+```bash
+./scripts/setup_llm.sh      # installs llama.cpp via Homebrew + downloads a 2.4 GB model
+```
+
+Without it, Utter still transcribes perfectly; only the cleanup features are
+skipped, and it tells you so.
+
+### First run
+
+The speech model (~626 MB) downloads on first launch. The menu bar shows the
+progress; until it finishes, dictation will wait.
+
+macOS will ask for permissions as you first use each feature:
+
+| Permission | When | Needed for |
 |---|---|---|
-| **Microphone** | first recording | dictation + your side of meetings |
-| **Accessibility** | first transcript insertion | auto-pasting text at the caret (until granted, the transcript is put on the clipboard and you press ⌘V yourself) |
-| **System Audio Recording** | first meeting transcription | hearing the other meeting participants |
+| **Microphone** | first dictation | recording your voice |
+| **Accessibility** | first insertion | typing the text at your cursor |
+| **System Audio Recording** | first meeting | hearing other participants |
 
-Check them anytime via menu-bar icon → *Check Permissions…*.
-
-> **Signing & permissions:** `build_app.sh` automatically signs with your **Apple Development**
-> identity when you have one (`security find-identity -v -p codesigning`). That matters: a
-> team-signed app keeps its permissions across rebuilds, whereas an ad-hoc signed app looks like a
-> brand-new app to macOS every single build, silently losing Accessibility — which makes dictation
-> appear to do nothing. The first signing pops a keychain dialog: click **Always Allow**.
-> Force ad-hoc with `JUSTSAYIT_ADHOC=1 scripts/build_app.sh`.
->
-> **The app must be running** for the hotkeys to work — it lives in the menu bar. Enable
-> *Start at Login* from its menu so it always is.
+If Accessibility is missing, the menu-bar icon shows a warning badge and the
+menu offers a one-click fix. Without it, transcripts go to your clipboard
+instead of being typed.
 
 ## Usage
 
 | Action | Shortcut |
 |---|---|
-| Start / finish dictation (paste at caret) | `⌃⌥D` |
-| Cancel dictation (while recording or transcribing) | `Esc` |
-| Start / finish meeting transcription | `⌃⌥M` |
+| Dictate (hold, speak, release) | `⌃⌥D` |
+| Dictate (tap to start, tap to stop) | `⌃⌥D` short tap |
+| Cancel | `Esc` |
+| Meeting transcription start/stop | `⌃⌥M` |
 
-(Why not `⌃⌥Space`? On Macs with more than one keyboard layout — e.g. U.S. + Czech — that is
-macOS's own *Select next source in Input menu* shortcut.)
+Everything else is in the menu-bar menu: language (Auto / Čeština / English),
+push-to-talk on/off, the recording overlay, AI cleanup toggles, **Copy Last
+Dictation**, and **Open Dictation History** — so a transcript is never lost even
+if insertion fails.
 
-### Languages
+`⌃⌥D` rather than `⌃⌥Space` because on Macs with more than one keyboard layout,
+`⌃⌥Space` is macOS's own input-source switcher.
 
-*Auto* mode detects the language per utterance, restricted to Czech and English by default
-(`autoLanguages`), which stops Whisper from mistaking Czech for Slovak/Polish. Meeting audio is
-split at pauses and each utterance gets its own language, so bilingual calls keep both languages
-(Whisper itself can only apply one language per 30-second window — mixing languages *within a
-single sentence* is still a model limitation).
+## Before you record a meeting
 
-Meeting transcripts land in `~/Documents/JustSayIt/Meetings/` as Markdown (raw WAVs in
-`~/Documents/JustSayIt/Recordings/`, kept or deleted per the menu toggle).
+Meeting mode records **everyone on the call**, not just you.
 
-Menu options: language (Auto / Čeština / English), *Clean Dictation with AI* (off by default —
-adds a second or two of latency), *Structure Meetings with AI* (on by default), *Keep Meeting
-Audio Files*, *Start at Login*.
+In many countries you must tell the other participants first. In some — Germany
+(§201 StGB) among them — recording a private conversation without consent is a
+criminal offence, and within the EU such a recording is personal data under the
+GDPR. Utter shows a one-time warning and deletes the raw audio after
+transcribing by default, but **the legal responsibility is yours**.
 
-Text insertion tries the Accessibility API first (writes straight into the focused field), and
-falls back to clipboard + ⌘V for apps that don't expose one (Electron, Chrome). Both need the
-Accessibility permission; without it the transcript is copied to the clipboard and the HUD says so.
-
-> **Tips:** wear headphones during meetings (with speakers, the mic hears the other participants
-> too and their words can show up in both tracks), and pause Spotify/Music — everything the Mac
-> plays ends up in the "Them" track.
-
-Long meetings: the LLM has a 16k-token context, so transcripts longer than roughly 20 minutes are
-structured in slices (summary + action items per slice, then merged); the cleaned transcript is
-omitted for those and the raw transcript is always appended. If the LLM is unavailable, the file
-says so at the top and the HUD tells you.
+Practical advice: say out loud that you are recording, and wear headphones —
+otherwise your microphone picks up the other side too and it appears in both
+tracks.
 
 ## Configuration
 
-Everything lives in `defaults` under `com.jancuhel.justsayit`:
+There is no settings window yet. Everything lives in `defaults`:
 
 ```bash
-# Use a smaller/faster Whisper model (default: openai_whisper-large-v3-v20240930_626MB)
-defaults write com.jancuhel.justsayit whisperModel openai_whisper-small
+# Smaller/faster speech model (default: openai_whisper-large-v3-v20240930_626MB)
+defaults write com.jancuhel.utter whisperModel openai_whisper-small
 
-# Change the dictation hotkey (Carbon key code + modifier mask;
-# ctrl=0x1000 opt=0x800 shift=0x200 cmd=0x100 — values are ORed together).
-# Default is D (2) with ctrl+opt (6144). Example: ⌃⌥Space = key 49:
-defaults write com.jancuhel.justsayit dictationKeyCode -int 49
-defaults write com.jancuhel.justsayit dictationModifiers -int 6144
+# Change the dictation hotkey (Carbon key code + modifier mask:
+# ctrl 0x1000, opt 0x800, shift 0x200, cmd 0x100, ORed together).
+# Default is D (2) with ctrl+opt (6144).
+defaults write com.jancuhel.utter dictationKeyCode -int 2
+defaults write com.jancuhel.utter dictationModifiers -int 6144
 
-# Restrict auto language detection (default cs,en; empty array = any language)
-defaults write com.jancuhel.justsayit autoLanguages -array cs en de
+# Languages considered in Auto mode (default cs,en). If you speak something
+# else, set it here or Auto will force your speech into Czech or English.
+defaults write com.jancuhel.utter autoLanguages -array de en
 
-# Unload Whisper after 10 idle minutes instead of keeping it warm
-defaults write com.jancuhel.justsayit keepModelLoaded -bool false
+# Keep raw meeting audio instead of deleting it after transcription
+defaults write com.jancuhel.utter keepRecordings -bool true
+
+# Stop logging every dictation to disk
+defaults write com.jancuhel.utter keepDictationHistory -bool false
+
+# Free the model's RAM after 10 idle minutes instead of keeping it warm
+defaults write com.jancuhel.utter keepModelLoaded -bool false
 ```
 
-Restart the app after changing hotkeys.
+Restart Utter after changing hotkeys.
 
-## RAM / performance notes
+## What this is not
 
-- Whisper `large-v3-turbo` (626 MB quantized) runs on the Neural Engine; a 10 s dictation
-  transcribes in well under a second once warm. Resident memory with the model loaded is
-  roughly 700–900 MB, most of it memory-mapped weights macOS can reclaim.
-- The LLM costs **zero RAM when idle** — `llama-server` is spawned per job and killed after
-  120 s of inactivity (~2.8 GB while it runs).
-- Lowest-footprint setup: `whisperModel openai_whisper-small` + `keepModelLoaded false` +
-  leave AI cleanup off.
+- **Not notarized.** There is no signed download, because notarization needs a
+  paid Apple Developer account. You build it yourself instead. If you would
+  rather not build software you have not read, that is a reasonable position —
+  do not install this.
+- **Not a polished product.** No onboarding, no settings UI, no auto-update, no
+  hotkey picker. Compare with [MacWhisper](https://goodsnooze.gumroad.com/l/macwhisper),
+  [VoiceInk](https://github.com/Beingpax/VoiceInk) or Wispr Flow if you want that.
+- **Not supported.** This is a personal project shared in case it is useful.
+  Issues are welcome; timely answers are not promised.
+- **Not tested broadly.** It has run on exactly one Mac, macOS 26, M3 Pro.
+- **Not for languages other than Czech and English** without changing
+  `autoLanguages` — Auto mode will otherwise confidently transcribe nonsense.
+
+## Performance
+
+Whisper `large-v3-turbo` (626 MB, quantized) runs on the Neural Engine — a short
+dictation transcribes in well under a second once warm. Resident memory with the
+model loaded is roughly 700–900 MB, most of it memory-mapped weights macOS can
+reclaim. The cleanup LLM costs **zero RAM when idle**: `llama-server` is spawned
+per job and killed after 120 seconds (~2.8 GB while it runs).
+
+Lightest setup: `whisperModel openai_whisper-small` + `keepModelLoaded false` +
+AI cleanup off.
+
+## Uninstall
+
+```bash
+rm -rf ~/Applications/Utter.app
+rm -rf ~/Library/Application\ Support/Utter    # models, dictation history
+rm -rf ~/Documents/Utter                        # meeting transcripts and audio
+defaults delete com.jancuhel.utter
+```
+
+Then remove Utter from System Settings → Privacy & Security → Accessibility,
+Microphone and System Audio Recording.
 
 ## Development
 
 ```bash
-swift test          # unit tests (merger, chunker, LLM slicing, settings, prompts, sanitizer)
-swift build         # debug build
-.build/debug/JustSayIt --transcribe audio.wav [--language auto|cs|en]   # headless transcription
+swift test                                  # 27 unit tests, no network or models needed
+swift build
+.build/debug/Utter --transcribe audio.wav [--language auto|cs|en]
 
-# Runtime self-tests exercising the real capture / LLM / paste paths (synthesized speech via `say`;
-# they trigger the normal permission prompts). Run through the bundle so TCC attributes correctly:
-open -W -a ~/Applications/JustSayIt.app --args --selftest all 8 --out /tmp/selftest.log
+# Runtime self-tests that exercise real capture / LLM / paste paths.
+# They synthesize speech with `say` and trigger the normal permission prompts.
+open -W -a ~/Applications/Utter.app --args --selftest all 8 --out /tmp/selftest.log
 # modes: mic | tap | llm | meeting | keys | all
 ```
 
-Design and plan docs: `docs/superpowers/`.
+**A note on rebuilds:** an ad-hoc signature changes identity on every build, so
+macOS drops your Accessibility grant each time. To keep it, sign with your own
+Apple Development certificate (free with an Apple ID, via Xcode):
+
+```bash
+CODESIGN_IDENTITY="Apple Development: you@example.com (TEAMID)" ./scripts/build_app.sh --install
+```
+
+Do **not** work around this by overriding the designated requirement to match on
+bundle identifier — that lets any app claiming the identifier inherit your
+granted permissions. See the comment in `scripts/build_app.sh`.
+
+Architecture and design notes: [docs/](docs/).
 
 ## Troubleshooting
 
-- **Hotkey does nothing** — first check the app is actually running (menu-bar mic icon; enable
-  *Start at Login*). Otherwise another app may own `⌃⌥D` — change it (see Configuration).
-- **Text lands in clipboard but doesn't paste** — grant Accessibility (see Permissions). After an
-  ad-hoc rebuild you must toggle JustSayIt **off and on** in that list; sign with an Apple
-  Development identity to avoid this entirely.
-- **Nothing appears and no HUD** — the app quit or was replaced by a rebuild; relaunch it with
-  `open ~/Applications/JustSayIt.app`.
-- **"llama-server not found"** — run `scripts/setup_llm.sh`; cleanup features are optional and
-  the app works fine without them (raw transcripts are delivered unchanged).
-- **Meeting has no "Them" lines** — check System Settings → Privacy & Security → Screen & System
-  Audio Recording → System Audio Recording lists JustSayIt (the saved file and HUD warn when the
-  system track was silent the whole time).
-- **A meeting was recording when the app quit** — the WAVs in `~/Documents/JustSayIt/Recordings/`
-  are finalized on quit; transcribe them with `JustSayIt --transcribe <file>`.
-- Logs: `log stream --predicate 'subsystem == "com.jancuhel.justsayit"' --level info`
+- **Hotkey does nothing** — is the app running? It is menu-bar only. Enable
+  *Start at Login*. Otherwise another app may own `⌃⌥D`; change it above.
+- **Text lands on the clipboard instead of being typed** — grant Accessibility
+  (menu → *⚠︎ Accessibility not granted*). After an ad-hoc rebuild you must
+  toggle it off and on again.
+- **`llama-server not found`** — run `scripts/setup_llm.sh`, or ignore it; the
+  cleanup features are optional.
+- **Meeting has no `Them` lines** — check System Settings → Privacy & Security →
+  Screen & System Audio Recording. The saved transcript warns you when the
+  system track was silent throughout.
+- **Logs** — `log stream --predicate 'subsystem == "com.jancuhel.utter"' --level info`
+
+## License
+
+[Apache-2.0](LICENSE). Third-party components and model licenses:
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).

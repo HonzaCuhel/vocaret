@@ -1,5 +1,5 @@
 import XCTest
-@testable import JustSayItCore
+@testable import UtterCore
 
 final class UtteranceChunkerTests: XCTestCase {
     private let rate = 16_000

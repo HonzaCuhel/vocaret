@@ -5,23 +5,23 @@
     <key>CFBundleDevelopmentRegion</key>
     <string>en</string>
     <key>CFBundleExecutable</key>
-    <string>JustSayIt</string>
+    <string>Utter</string>
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
     <key>CFBundleIconName</key>
     <string>AppIcon</string>
     <key>CFBundleIdentifier</key>
-    <string>com.jancuhel.justsayit</string>
+    <string>com.jancuhel.utter</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>
-    <string>JustSayIt</string>
+    <string>Utter</string>
     <key>CFBundleDisplayName</key>
-    <string>JustSayIt</string>
+    <string>Utter</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.0.0</string>
+    <string>0.1.0</string>
     <key>CFBundleVersion</key>
     <string>1</string>
     <key>LSMinimumSystemVersion</key>
@@ -31,8 +31,8 @@
     <key>NSHighResolutionCapable</key>
     <true/>
     <key>NSMicrophoneUsageDescription</key>
-    <string>JustSayIt records your voice to transcribe dictation and your side of meetings — everything stays on this Mac.</string>
+    <string>Utter records your voice to transcribe dictation and your side of meetings — everything stays on this Mac.</string>
     <key>NSAudioCaptureUsageDescription</key>
-    <string>JustSayIt records system audio during meeting transcription so the other participants can be transcribed — everything stays on this Mac.</string>
+    <string>Utter records system audio during meeting transcription so the other participants can be transcribed — everything stays on this Mac.</string>
 </dict>
 </plist>

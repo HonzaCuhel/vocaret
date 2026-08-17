@@ -32,7 +32,7 @@ public final class SystemAudioTap {
     private var ioProcID: AudioDeviceIOProcID?
     private var file: AVAudioFile?
     private var format: AVAudioFormat?
-    private let ioQueue = DispatchQueue(label: "com.jancuhel.justsayit.systemtap")
+    private let ioQueue = DispatchQueue(label: "com.jancuhel.utter.systemtap")
 
     public init() {}
 
@@ -42,7 +42,7 @@ public final class SystemAudioTap {
         // 1. Tap over all system audio, mixed down to stereo.
         let tapDescription = CATapDescription(stereoGlobalTapButExcludeProcesses: [])
         tapDescription.uuid = UUID()
-        tapDescription.name = "JustSayIt System Audio Tap"
+        tapDescription.name = "Utter System Audio Tap"
         tapDescription.isPrivate = true
         tapDescription.muteBehavior = .unmuted
 
@@ -72,7 +72,7 @@ public final class SystemAudioTap {
 
             // 3. Private aggregate device that contains only the tap.
             let aggregateDescription: [String: Any] = [
-                kAudioAggregateDeviceNameKey: "JustSayIt Tap Device",
+                kAudioAggregateDeviceNameKey: "Utter Tap Device",
                 kAudioAggregateDeviceUIDKey: UUID().uuidString,
                 kAudioAggregateDeviceIsPrivateKey: true,
                 kAudioAggregateDeviceIsStackedKey: false,

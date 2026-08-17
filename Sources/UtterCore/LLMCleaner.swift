@@ -363,16 +363,42 @@ public actor LLMCleaner {
         return (response as? HTTPURLResponse)?.statusCode == 200
     }
 
+    /// Executable, and not writable by other users (which would let a
+    /// non-admin process swap in its own binary and inherit our TCC grants).
+    static func isSafeExecutable(_ path: String, fileManager: FileManager) -> Bool {
+        guard fileManager.isExecutableFile(atPath: path),
+              let attributes = try? fileManager.attributesOfItem(atPath: path),
+              let permissions = attributes[.posixPermissions] as? NSNumber,
+              let owner = attributes[.ownerAccountID] as? NSNumber else { return false }
+        let worldWritable = permissions.uint16Value & 0o002 != 0
+        let groupWritable = permissions.uint16Value & 0o020 != 0
+        let ownedByRootOrUs = owner.uint32Value == 0 || owner.uint32Value == getuid()
+        return !worldWritable && !groupWritable && ownedByRootOrUs
+    }
+
     private func resolvePaths() throws -> (server: String, model: String) {
         let settings = SettingsStore.shared
         let fileManager = FileManager.default
 
-        let serverCandidates = [
-            settings.llamaServerPath,
+        // This process holds Accessibility, Microphone and System Audio grants,
+        // so it must not launch an arbitrary binary named by a preference.
+        // Only known llama.cpp install locations are accepted, and the file
+        // must be owned by root or the current user and not world-writable.
+        let allowedServers = [
             "/opt/homebrew/bin/llama-server",
             "/usr/local/bin/llama-server",
-        ].compactMap { $0 }
-        guard let server = serverCandidates.first(where: { fileManager.isExecutableFile(atPath: $0) }) else {
+            "/opt/local/bin/llama-server",
+        ]
+        var candidates = allowedServers
+        if let configured = settings.llamaServerPath {
+            let resolved = URL(fileURLWithPath: configured).standardizedFileURL.path
+            if allowedServers.contains(resolved) {
+                candidates = [resolved] + allowedServers
+            } else {
+                Log.warn("Ignoring llamaServerPath '\(configured)': not an allowed llama-server location")
+            }
+        }
+        guard let server = candidates.first(where: { Self.isSafeExecutable($0, fileManager: fileManager) }) else {
             throw LLMError.serverBinaryNotFound
         }
 

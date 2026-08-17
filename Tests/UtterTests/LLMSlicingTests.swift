@@ -1,5 +1,5 @@
 import XCTest
-@testable import JustSayItCore
+@testable import UtterCore
 
 final class LLMSlicingTests: XCTestCase {
     private func turn(_ i: Int) -> String {

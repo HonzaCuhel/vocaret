@@ -23,6 +23,7 @@ public final class SettingsStore: @unchecked Sendable {
         static let keepRecordings = "keepRecordings"
         static let keepDictationHistory = "keepDictationHistory"
         static let pushToTalk = "pushToTalk"
+        static let meetingConsentAcknowledged = "meetingConsentAcknowledged"
         static let showHUD = "showHUD"
         static let keepModelLoaded = "keepModelLoaded"
         static let dictationKeyCode = "dictationKeyCode"
@@ -73,7 +74,7 @@ public final class SettingsStore: @unchecked Sendable {
         set { defaults.set(newValue, forKey: Key.cleanMeetings) }
     }
 
-    /// Append every dictation to ~/Library/Application Support/JustSayIt/
+    /// Append every dictation to ~/Library/Application Support/Utter/
     /// dictation-history.md so nothing is ever lost to a failed insertion.
     public var keepDictationHistory: Bool {
         get { boolValue(Key.keepDictationHistory, default: true) }
@@ -88,14 +89,23 @@ public final class SettingsStore: @unchecked Sendable {
         set { defaults.set(newValue, forKey: Key.pushToTalk) }
     }
 
+    /// Whether the user has seen the "recording other people has legal
+    /// consequences" notice. Shown once, before the first meeting recording.
+    public var meetingConsentAcknowledged: Bool {
+        get { boolValue(Key.meetingConsentAcknowledged, default: false) }
+        set { defaults.set(newValue, forKey: Key.meetingConsentAcknowledged) }
+    }
+
     /// The floating "Recording / Transcribing" pill.
     public var showHUD: Bool {
         get { boolValue(Key.showHUD, default: true) }
         set { defaults.set(newValue, forKey: Key.showHUD) }
     }
 
+    /// Raw meeting audio contains other people's voices, so it is deleted once
+    /// the transcript exists unless the user opts in to keeping it.
     public var keepRecordings: Bool {
-        get { boolValue(Key.keepRecordings, default: true) }
+        get { boolValue(Key.keepRecordings, default: false) }
         set { defaults.set(newValue, forKey: Key.keepRecordings) }
     }
 
@@ -158,7 +168,7 @@ public final class SettingsStore: @unchecked Sendable {
     public var appSupportDir: URL {
         createdDirectory(
             FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-                .appendingPathComponent("JustSayIt", isDirectory: true)
+                .appendingPathComponent("Utter", isDirectory: true)
         )
     }
 
@@ -169,14 +179,14 @@ public final class SettingsStore: @unchecked Sendable {
     public var meetingsDir: URL {
         createdDirectory(
             FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-                .appendingPathComponent("JustSayIt/Meetings", isDirectory: true)
+                .appendingPathComponent("Utter/Meetings", isDirectory: true)
         )
     }
 
     public var recordingsDir: URL {
         createdDirectory(
             FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-                .appendingPathComponent("JustSayIt/Recordings", isDirectory: true)
+                .appendingPathComponent("Utter/Recordings", isDirectory: true)
         )
     }
 

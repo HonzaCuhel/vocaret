@@ -2,10 +2,10 @@
 # One-time setup for the local cleanup LLM:
 #   1. install llama.cpp (brew) if missing
 #   2. download Qwen3-4B-Instruct-2507 Q4_K_M (~2.4 GB) — good Czech + English
-#   3. point JustSayIt at both via defaults
+#   3. point Utter at both via defaults
 set -euo pipefail
 
-MODELS_DIR="$HOME/Library/Application Support/JustSayIt/Models"
+MODELS_DIR="$HOME/Library/Application Support/Utter/Models"
 MODEL_NAME="Qwen3-4B-Instruct-2507-Q4_K_M.gguf"
 MODEL_FILE="$MODELS_DIR/$MODEL_NAME"
 MODEL_URL="https://huggingface.co/unsloth/Qwen3-4B-Instruct-2507-GGUF/resolve/main/$MODEL_NAME"
@@ -33,8 +33,8 @@ else
     mv "$MODEL_FILE.part" "$MODEL_FILE"
 fi
 
-defaults write com.jancuhel.justsayit llamaServerPath "$(command -v llama-server)"
-defaults write com.jancuhel.justsayit llmModelPath "$MODEL_FILE"
+defaults write com.jancuhel.utter llamaServerPath "$(command -v llama-server)"
+defaults write com.jancuhel.utter llmModelPath "$MODEL_FILE"
 
 echo "==> LLM setup complete."
 echo "    Server: $(command -v llama-server)"
