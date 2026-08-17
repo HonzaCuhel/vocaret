@@ -1,3 +1,4 @@
+import AppKit
 import Carbon.HIToolbox
 import Foundation
 
@@ -67,6 +68,62 @@ public final class HotkeyManager {
         } else {
             handlers[id]?()
         }
+    }
+
+    // MARK: - Release watching (push-to-talk)
+
+    private var releaseMonitors: [Any] = []
+
+    /// Carbon's `kEventHotKeyReleased` is not delivered reliably, so
+    /// push-to-talk watches the real event stream instead: the chord counts as
+    /// released as soon as the key comes up or the modifiers are let go.
+    /// Requires Accessibility (already needed to insert text).
+    public func beginReleaseWatch(keyCode: UInt32, modifiers: UInt32, onRelease: @escaping () -> Void) {
+        endReleaseWatch()
+        let required = Self.nsFlags(carbonModifiers: modifiers)
+        var fired = false
+        let handler: (NSEvent) -> Void = { event in
+            guard !fired else { return }
+            switch event.type {
+            case .keyUp where UInt32(event.keyCode) == keyCode:
+                fired = true
+                onRelease()
+            case .flagsChanged:
+                let current = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+                if !current.isSuperset(of: required) {
+                    fired = true
+                    onRelease()
+                }
+            default:
+                break
+            }
+        }
+        // Global monitor sees other apps' events; local sees our own.
+        if let global = NSEvent.addGlobalMonitorForEvents(matching: [.keyUp, .flagsChanged], handler: handler) {
+            releaseMonitors.append(global)
+        }
+        if let local = NSEvent.addLocalMonitorForEvents(matching: [.keyUp, .flagsChanged], handler: { event in
+            handler(event)
+            return event
+        }) {
+            releaseMonitors.append(local)
+        }
+    }
+
+    public func endReleaseWatch() {
+        for monitor in releaseMonitors {
+            NSEvent.removeMonitor(monitor)
+        }
+        releaseMonitors.removeAll()
+    }
+
+    public static func nsFlags(carbonModifiers: UInt32) -> NSEvent.ModifierFlags {
+        var flags: NSEvent.ModifierFlags = []
+        if carbonModifiers & UInt32(cmdKey) != 0 { flags.insert(.command) }
+        if carbonModifiers & UInt32(shiftKey) != 0 { flags.insert(.shift) }
+        if carbonModifiers & UInt32(optionKey) != 0 { flags.insert(.option) }
+        if carbonModifiers & UInt32(controlKey) != 0 { flags.insert(.control) }
+        return flags
     }
 
     // MARK: - Helpers shared with UI / self-test

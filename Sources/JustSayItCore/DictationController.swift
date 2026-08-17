@@ -65,6 +65,7 @@ public final class DictationController {
     public func cancel() {
         switch state {
         case .recording:
+            HotkeyManager.shared.endReleaseWatch()
             _ = recorder.stop()
             unregisterCancelHotkey()
             SoundPlayer.play(.stop)
@@ -111,6 +112,15 @@ public final class DictationController {
             }
             SoundPlayer.play(.start)
             state = .recording
+            if SettingsStore.shared.pushToTalk {
+                let settings = SettingsStore.shared
+                HotkeyManager.shared.beginReleaseWatch(
+                    keyCode: settings.dictationKeyCode,
+                    modifiers: settings.dictationModifiers
+                ) { [weak self] in
+                    self?.hotkeyReleased()
+                }
+            }
             let hotkey = SettingsStore.shared.dictationHotkeyLabel
             let heldDuration = pressStarted.map { Date().timeIntervalSince($0) } ?? 0
             let holding = SettingsStore.shared.pushToTalk && !releasedWhileStarting
@@ -138,6 +148,7 @@ public final class DictationController {
     }
 
     private func finish() {
+        HotkeyManager.shared.endReleaseWatch()
         let samples = recorder.stop()
         SoundPlayer.play(.stop)
         state = .transcribing

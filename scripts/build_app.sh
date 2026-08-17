@@ -34,13 +34,22 @@ else
     IDENTITY="${CODESIGN_IDENTITY:-$(security find-identity -v -p codesigning 2>/dev/null \
         | grep -m1 -oE '"Apple Development: [^"]+"' | tr -d '"' || true)}"
 fi
+# The designated requirement is what TCC records when you grant Accessibility.
+# By default an ad-hoc signature pins it to the exact code hash, so EVERY
+# rebuild is a different app and the permission silently stops applying.
+# Pinning it to the bundle identifier instead keeps grants across rebuilds.
+REQUIREMENT='designated => identifier "com.jancuhel.justsayit"'
+
 if [[ -n "$IDENTITY" ]]; then
     echo "==> Signing with: $IDENTITY"
-    codesign --force --timestamp=none --identifier com.jancuhel.justsayit --sign "$IDENTITY" "$APP"
+    codesign --force --timestamp=none --identifier com.jancuhel.justsayit \
+        -r="$REQUIREMENT" --sign "$IDENTITY" "$APP"
 else
-    echo "==> Ad-hoc signing (set CODESIGN_IDENTITY for rebuild-stable TCC grants)"
-    codesign --force --identifier com.jancuhel.justsayit --sign - "$APP"
+    echo "==> Ad-hoc signing with a stable designated requirement"
+    codesign --force --identifier com.jancuhel.justsayit \
+        -r="$REQUIREMENT" --sign - "$APP"
 fi
+echo "==> Designated requirement: $(codesign -d -r- "$APP" 2>&1 | grep -m1 'designated' || echo '(none)')"
 codesign --verify --deep "$APP"
 echo "==> Built $APP"
 
