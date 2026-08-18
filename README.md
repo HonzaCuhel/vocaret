@@ -14,12 +14,11 @@
   <img src="https://img.shields.io/badge/macOS-14.4%2B-black" alt="macOS 14.4+">
   <img src="https://img.shields.io/badge/Apple%20Silicon-required-black" alt="Apple Silicon required">
   <img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="Apache-2.0">
-  <img src="https://img.shields.io/badge/version-0.1.0-orange" alt="v0.1.0">
+  <img src="https://img.shields.io/badge/version-0.2.0-orange" alt="v0.2.0">
 </p>
 
-> **Status: v0.1.0, early.** Built by one person, working well daily on one Mac.
-> Expect rough edges. There is no settings window yet — configuration is via
-> `defaults write`. Please read [what this is not](#what-this-is-not) before
+> **Status: v0.2.0, early.** Built by one person, working well daily on one Mac.
+> Expect rough edges. Please read [what this is not](#what-this-is-not) before
 > installing.
 
 ## What it does
@@ -69,8 +68,9 @@ cd vocaret
 ./scripts/build_app.sh --install
 ```
 
-That builds `~/Applications/Vocaret.app` and launches it. Look for the microphone
-icon in your menu bar — the app has no window and no Dock icon.
+That builds `~/Applications/Vocaret.app` and launches it. The window opens on
+first launch; afterwards Vocaret lives in the menu bar (microphone icon) and the
+window is one click away (*Open Vocaret*).
 
 Optional, for the AI cleanup features:
 
@@ -132,7 +132,8 @@ tracks.
 
 ## Configuration
 
-There is no settings window yet. Everything lives in `defaults`:
+The Settings tab covers the common cases (shortcuts, language, model, AI cleanup,
+vocabulary, behaviour). Everything is also reachable via `defaults`:
 
 ```bash
 # Smaller/faster speech model (default: openai_whisper-large-v3-v20240930_626MB)
@@ -166,8 +167,8 @@ Restart Vocaret after changing hotkeys.
   paid Apple Developer account. You build it yourself instead. If you would
   rather not build software you have not read, that is a reasonable position —
   do not install this.
-- **Not a polished product.** No onboarding, no settings UI, no auto-update, no
-  hotkey picker. Compare with [MacWhisper](https://goodsnooze.gumroad.com/l/macwhisper),
+- **Not a polished product.** No auto-update, no speaker diarization beyond
+  Me/Them, no automatic meeting detection. Compare with [MacWhisper](https://goodsnooze.gumroad.com/l/macwhisper),
   [VoiceInk](https://github.com/Beingpax/VoiceInk) or Wispr Flow if you want that.
 - **Not supported.** This is a personal project shared in case it is useful.
   Issues are welcome; timely answers are not promised.
