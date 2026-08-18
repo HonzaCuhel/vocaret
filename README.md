@@ -34,6 +34,17 @@
   virtual audio driver needed.
 - **Optional local cleanup** — a small language model removes filler words and
   structures meeting notes into a summary and action items.
+- **A window, when you want one** — menu bar → *Open Vocaret* (or ⌘O in the
+  menu): a dashboard (words, speaking pace, time saved vs typing, streak, peak
+  hours), your full dictation history with search and copy, the meeting
+  transcripts, settings with a shortcut recorder, and a **speaking coach**.
+- **Speaking coach** — reads your last two weeks of dictation *on this Mac* and
+  measures filler words, sentence length, vocabulary richness and pace; the local
+  LLM adds a short personal note, and a curated reading list (Czech editions
+  where they exist) is matched to what the measurements show. Nothing is sent
+  anywhere.
+- **Live recording pill** — the overlay shows a level meter driven by your
+  microphone while you speak, a timer, and pulses while transcribing.
 
 Everything runs on your Mac: Whisper via Core ML on the Neural Engine, and
 llama.cpp on localhost. See [PRIVACY.md](PRIVACY.md) for the precise details,
@@ -96,7 +107,8 @@ instead of being typed.
 | Cancel | `Esc` |
 | Meeting transcription start/stop | `⌃⌥M` |
 
-Everything else is in the menu-bar menu: language (Auto / Čeština / English),
+Most settings live in the window (menu bar → *Open Vocaret* → Settings), including
+a shortcut recorder. The menu-bar menu keeps the essentials: language (Auto / Čeština / English),
 push-to-talk on/off, the recording overlay, AI cleanup toggles, **Copy Last
 Dictation**, and **Open Dictation History** — so a transcript is never lost even
 if insertion fails.
@@ -196,7 +208,10 @@ swift build
 # Runtime self-tests that exercise real capture / LLM / paste paths.
 # They synthesize speech with `say` and trigger the normal permission prompts.
 open -W -a ~/Applications/Vocaret.app --args --selftest all 8 --out /tmp/selftest.log
-# modes: mic | tap | llm | meeting | keys | all
+# modes: mic | tap | llm | meeting | keys | hud | all
+
+.build/release/Vocaret --coach                    # run the speaking coach headless
+.build/release/Vocaret --render-window /tmp/ui    # render every window section to PNG
 ```
 
 **A note on rebuilds:** an ad-hoc signature changes identity on every build, so

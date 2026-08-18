@@ -124,10 +124,9 @@ public final class DictationController {
             let hotkey = SettingsStore.shared.dictationHotkeyLabel
             let heldDuration = pressStarted.map { Date().timeIntervalSince($0) } ?? 0
             let holding = SettingsStore.shared.pushToTalk && !releasedWhileStarting
-            HUD.shared.show(
-                holding
-                    ? "● Recording — release \(hotkey) to insert, Esc to cancel"
-                    : "● Recording — \(hotkey) to insert, Esc to cancel"
+            HUD.shared.beginRecording(
+                text: holding ? "Release \(hotkey) to insert · Esc cancels" : "\(hotkey) to insert · Esc cancels",
+                level: { [weak recorder] in recorder?.level ?? 0 }
             )
             registerCancelHotkey()
 
@@ -144,15 +143,17 @@ public final class DictationController {
         guard state == .recording else { return }
         Log.warn("Dictation recording interrupted: \(error?.localizedDescription ?? "audio device changed")")
         // Keep what we have; the user can stop normally. Just tell them.
-        HUD.shared.update("● Recording (audio device changed) — press the hotkey to insert")
+        HUD.shared.update("Audio device changed — press the hotkey to insert")
     }
 
     private func finish() {
         HotkeyManager.shared.endReleaseWatch()
         let samples = recorder.stop()
+        let recordingSeconds = Double(samples.count) / MicRecorder.whisperSampleRate
+        let transcriptionStarted = Date()
         SoundPlayer.play(.stop)
         state = .transcribing
-        HUD.shared.update("Transcribing… (Esc to cancel)")
+        HUD.shared.beginTranscribing(text: "Transcribing… (Esc to cancel)")
         // Remember where the text should go — the user may switch apps while
         // we transcribe, and we must not paste into an unrelated window.
         let targetPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
@@ -183,8 +184,15 @@ public final class DictationController {
                 // Always applied, and cheap: your own spellings win.
                 text = TranscriptCorrector.apply(text, vocabulary: Vocabulary.shared)
                 // Record BEFORE inserting: whatever happens next, the
-                // transcript is retrievable from the menu (Copy Last Dictation).
-                TranscriptHistory.shared.record(text)
+                // transcript is retrievable from the menu and the History tab.
+                TranscriptHistory.shared.record(DictationRecord(
+                    date: Date(),
+                    text: text,
+                    recordingSeconds: recordingSeconds,
+                    transcriptionSeconds: Date().timeIntervalSince(transcriptionStarted),
+                    model: SettingsStore.shared.whisperModel,
+                    cleaned: SettingsStore.shared.cleanDictation
+                ))
 
                 switch await TextInserter.insert(text, targetPID: targetPID) {
                 case .insertedViaAccessibility, .pastedViaClipboard:

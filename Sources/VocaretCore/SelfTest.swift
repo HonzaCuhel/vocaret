@@ -1,6 +1,7 @@
 import AppKit
 import AVFoundation
 import Foundation
+import SwiftUI
 
 /// Hidden headless verification modes that exercise the *real* runtime paths
 /// (mic capture, system-audio tap, LLM client, hotkeys, paste) without a
@@ -51,6 +52,7 @@ public enum SelfTest {
             case "llm": await llmTest()
             case "meeting": await meetingTest(seconds: seconds)
             case "keys": await keysTest()
+            case "hud": await hudTest()
             case "all":
                 await micTest(seconds: seconds)
                 await tapTest(seconds: seconds)
@@ -371,6 +373,46 @@ public enum SelfTest {
         emit("[keys] caret-insert result: \"\(textView.string)\"")
         check(textView.string.contains("Před: vloženo"), "[keys] text inserted at the caret, existing content preserved")
 
+        window.orderOut(nil)
+    }
+
+    /// Drives the recorder pill through its phases with a synthetic level and
+    /// renders each to PNG next to the log — proves the animation path runs.
+    @MainActor
+    static func hudTest() async {
+        let dir = (outputURL?.deletingLastPathComponent() ?? FileManager.default.temporaryDirectory)
+        var phase = 0.0
+        HUD.shared.beginRecording(text: "Release ⌃⌥D to insert · Esc cancels") {
+            phase += 0.09
+            return Float(0.35 + 0.35 * sin(phase)) // breathing 0…0.7
+        }
+        try? await Task.sleep(nanoseconds: 1_200_000_000)
+        check(HUD.shared.model.phase == .recording, "[hud] pill entered recording phase")
+        renderPill(to: dir.appendingPathComponent("hud-recording.png"))
+        HUD.shared.beginTranscribing(text: "Transcribing… (Esc to cancel)")
+        try? await Task.sleep(nanoseconds: 600_000_000)
+        check(HUD.shared.model.phase == .transcribing, "[hud] pill entered transcribing phase")
+        renderPill(to: dir.appendingPathComponent("hud-transcribing.png"))
+        HUD.shared.flash("Copied — press ⌘V", seconds: 0.4)
+        try? await Task.sleep(nanoseconds: 700_000_000)
+        check(HUD.shared.model.phase == .hidden, "[hud] flash hid the pill afterwards (no stuck overlay)")
+    }
+
+    @MainActor
+    private static func renderPill(to url: URL) {
+        let view = NSHostingView(rootView: RecorderPillView(model: HUD.shared.model))
+        view.frame = NSRect(x: 0, y: 0, width: 480, height: 80)
+        view.wantsLayer = true
+        view.layer?.backgroundColor = NSColor(calibratedWhite: 0.12, alpha: 1).cgColor
+        let window = NSWindow(contentRect: view.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.contentView = view
+        window.orderBack(nil)
+        view.layoutSubtreeIfNeeded()
+        if let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) {
+            view.cacheDisplay(in: view.bounds, to: rep)
+            try? rep.representation(using: .png, properties: [:])?.write(to: url)
+            emit("[hud] rendered \(url.path)")
+        }
         window.orderOut(nil)
     }
 

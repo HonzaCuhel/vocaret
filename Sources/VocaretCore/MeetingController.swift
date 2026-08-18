@@ -134,7 +134,10 @@ public final class MeetingController {
             self.startedAt = Date()
             SoundPlayer.play(.start)
             state = .recording
-            HUD.shared.show("● Recording meeting — \(SettingsStore.shared.meetingHotkeyLabel) to finish")
+            HUD.shared.beginRecording(
+                text: "Recording meeting · \(SettingsStore.shared.meetingHotkeyLabel) to finish",
+                level: { [weak micRecorder] in micRecorder?.level ?? 0 }
+            )
         }
     }
 
@@ -147,7 +150,7 @@ public final class MeetingController {
         stopCapture()
         SoundPlayer.play(.stop)
         state = .processing
-        HUD.shared.update("Transcribing meeting… this can take a few minutes")
+        HUD.shared.beginTranscribing(text: "Transcribing meeting… this can take a few minutes")
 
         let startedAt = self.startedAt ?? Date()
         Task { @MainActor in

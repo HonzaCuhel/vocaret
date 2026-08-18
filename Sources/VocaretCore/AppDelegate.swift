@@ -11,6 +11,13 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         registerHotkeys()
         LLMCleaner.shared.reapStaleServer()
 
+        // First launch: open the window so a new user sees what this is and
+        // where the shortcut lives, instead of an unexplained menu-bar glyph.
+        if !SettingsStore.shared.hasShownWindow {
+            SettingsStore.shared.hasShownWindow = true
+            MainWindowController.shared.show()
+        }
+
         // Preload Whisper so the first dictation is instant. First launch
         // downloads the model (~632 MB), so surface that in the HUD.
         Task { @MainActor in
@@ -34,6 +41,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             // dictation actually appear where the cursor is.
             warnIfAccessibilityMissing()
         }
+    }
+
+    public func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        MainWindowController.shared.show()
+        return true
     }
 
     public func applicationWillTerminate(_ notification: Notification) {

@@ -102,6 +102,24 @@ public actor LLMCleaner {
         try? FileManager.default.removeItem(at: Self.pidFile)
     }
 
+    /// Cheap check for the UI: is a llama-server binary installed at all?
+    public nonisolated static func serverBinaryPresent() -> Bool {
+        ["/opt/homebrew/bin/llama-server", "/usr/local/bin/llama-server", "/opt/local/bin/llama-server"]
+            .contains { FileManager.default.isExecutableFile(atPath: $0) }
+    }
+
+    /// Generic completion for features other than cleanup (the speaking coach).
+    /// Returns nil when the server is unavailable or the answer was empty.
+    public func generate(system: String, user: String, maxTokens: Int = 1500) async -> String? {
+        do {
+            let output = try await chat(system: system, user: user, maxTokens: maxTokens)
+            return output.text.isEmpty ? nil : output.text
+        } catch {
+            Log.warn("LLM generation skipped: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
     public func cleanDictation(_ text: String) async -> String {
         guard !text.isEmpty else { return text }
         do {

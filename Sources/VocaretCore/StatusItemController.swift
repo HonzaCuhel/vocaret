@@ -37,6 +37,11 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
         stateItem.isEnabled = false
         menu.addItem(stateItem)
 
+        let openWindow = NSMenuItem(title: "Open Vocaret…", action: #selector(openMainWindow), keyEquivalent: "o")
+        openWindow.keyEquivalentModifierMask = [.command]
+        openWindow.target = self
+        menu.addItem(openWindow)
+
         // Shown only while Accessibility is missing — the one condition that
         // makes dictation look silently broken.
         accessibilityWarningItem.title = "⚠︎ Accessibility not granted — click to fix"
@@ -295,6 +300,10 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
         } else {
             HUD.shared.flash("No dictation history yet", seconds: 3)
         }
+    }
+
+    @objc private func openMainWindow() {
+        MainWindowController.shared.show()
     }
 
     @objc private func fixAccessibility() {

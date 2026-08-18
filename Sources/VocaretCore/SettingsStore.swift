@@ -33,6 +33,7 @@ public final class SettingsStore: @unchecked Sendable {
         static let pushToTalk = "pushToTalk"
         static let meetingConsentAcknowledged = "meetingConsentAcknowledged"
         static let showHUD = "showHUD"
+        static let hasShownWindow = "hasShownWindow"
         static let keepModelLoaded = "keepModelLoaded"
         static let dictationKeyCode = "dictationKeyCode"
         static let dictationModifiers = "dictationModifiers"
@@ -102,6 +103,11 @@ public final class SettingsStore: @unchecked Sendable {
     public var meetingConsentAcknowledged: Bool {
         get { boolValue(Key.meetingConsentAcknowledged, default: false) }
         set { defaults.set(newValue, forKey: Key.meetingConsentAcknowledged) }
+    }
+
+    public var hasShownWindow: Bool {
+        get { boolValue(Key.hasShownWindow, default: false) }
+        set { defaults.set(newValue, forKey: Key.hasShownWindow) }
     }
 
     /// The floating "Recording / Transcribing" pill.

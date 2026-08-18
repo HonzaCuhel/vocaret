@@ -54,6 +54,26 @@ public enum LLMPrompts {
         "Here is the raw meeting transcript:\n\n" + transcript
     }
 
+    // MARK: - Speaking coach
+
+    public static func coachSystem(czech: Bool) -> String {
+        let language = czech ? "Czech" : "English"
+        return """
+        You are a warm, direct speaking coach reviewing someone's dictations. You receive
+        measurements and verbatim samples. Write in \(language).
+
+        Give exactly three short paragraphs:
+        1. What they already do well — be specific, quote a phrase from the samples.
+        2. The ONE habit that would most improve how clearly they express their thoughts,
+           with a concrete exercise they can do tomorrow (not "practice more").
+        3. One sentence of encouragement.
+
+        Rules: no bullet lists, no headings, no book recommendations (those are handled
+        elsewhere), no generic advice, under 170 words total. Never invent facts that are
+        not in the samples or the measurements.
+        """
+    }
+
     // MARK: - Long meetings (sliced)
 
     public static let meetingPartSystem = """

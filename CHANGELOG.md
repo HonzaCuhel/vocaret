@@ -3,6 +3,21 @@
 Versioning: [SemVer](https://semver.org/). While at 0.x, minor versions may
 change behaviour and defaults.
 
+## [0.2.0] — 2026-08-18
+
+### Added
+- Main window (menu bar → *Open Vocaret*, ⌘O): Dashboard, History, Meetings,
+  Coach, Settings. Opens automatically on first launch.
+- Dashboard: words today / this week / total, speaking pace, time saved vs
+  typing at 40 wpm, streak, last-14-days and peak-hours charts, recent transcripts.
+- Speaking coach: filler rate, sentence length, vocabulary richness, pace, plus a
+  local-LLM note and a curated reading list matched to the measurements.
+- History with search, detail, copy, delete; Meetings viewer with copy/reveal.
+- Settings UI with a shortcut recorder, model picker, vocabulary editor, toggles.
+- Recording overlay now animates with the live microphone level and shows a timer.
+- Dictation records carry timing (recording length, transcription latency) in
+  `dictation-history.jsonl`; the old Markdown history is imported once.
+
 ## [0.1.0] — 2026-08-17
 
 First public release. Previously developed as "JustSayIt".

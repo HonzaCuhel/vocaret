@@ -40,6 +40,16 @@ public final class MicRecorder {
     /// audio-route change, or stopped because it could not be restarted.
     public var onInterrupted: ((Error?) -> Void)?
 
+    /// Live input level, 0…1, perceptually scaled and lightly smoothed — what
+    /// the recording animation reads at 60 fps. Written from the audio thread,
+    /// read from the main thread; a plain atomic-ish Float behind a lock.
+    public var level: Float {
+        levelLock.lock(); defer { levelLock.unlock() }
+        return _level
+    }
+    private var _level: Float = 0
+    private let levelLock = NSLock()
+
     private var engine: AVAudioEngine?
     private var converter: AVAudioConverter?
     private var targetFormat: AVAudioFormat?
@@ -153,6 +163,7 @@ public final class MicRecorder {
     }
 
     private func process(buffer: AVAudioPCMBuffer) {
+        updateLevel(from: buffer)
         guard let converter else { return }
         let ratio = converter.outputFormat.sampleRate / converter.inputFormat.sampleRate
         let capacity = AVAudioFrameCount(Double(buffer.frameLength) * ratio) + 64
@@ -189,6 +200,24 @@ public final class MicRecorder {
         }
     }
 
+    private func updateLevel(from buffer: AVAudioPCMBuffer) {
+        guard let channels = buffer.floatChannelData, buffer.frameLength > 0 else { return }
+        let count = Int(buffer.frameLength)
+        var sum: Float = 0
+        let data = UnsafeBufferPointer(start: channels[0], count: count)
+        for sample in data { sum += sample * sample }
+        let rms = (sum / Float(count)).squareRoot()
+        // dBFS → 0…1 over a −50 dB window, then a gentle curve so quiet speech
+        // still moves the bars visibly.
+        let db = 20 * log10(max(rms, 1e-7))
+        let normalized = max(0, min(1, (db + 50) / 50))
+        let shaped = pow(normalized, 0.8)
+        levelLock.lock()
+        // Fast attack, slower release — reads as "alive" without flicker.
+        _level = shaped > _level ? shaped : _level * 0.85 + shaped * 0.15
+        levelLock.unlock()
+    }
+
     /// Stops capture. Returns the accumulated 16 kHz samples (in-memory mode)
     /// or an empty array (file mode — the WAV is already on disk).
     @discardableResult
@@ -206,6 +235,7 @@ public final class MicRecorder {
         file = nil
         isRunning = false
         onInterrupted = nil
+        levelLock.lock(); _level = 0; levelLock.unlock()
 
         sampleLock.lock()
         defer { sampleLock.unlock() }

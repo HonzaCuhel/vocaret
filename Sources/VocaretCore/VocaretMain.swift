@@ -11,6 +11,34 @@ public enum VocaretMain {
             return
         }
 
+        // Headless coach run: `Vocaret --coach` → prints the report, caches it for the window
+        if arguments.contains("--coach") {
+            Task.detached {
+                let records = TranscriptHistory.shared.all
+                let report = await SpeechCoach.report(records: records) { system, user in
+                    await LLMCleaner.shared.generate(system: system, user: user)
+                }
+                let encoder = JSONEncoder()
+                encoder.dateEncodingStrategy = .iso8601
+                encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+                let url = SettingsStore.shared.appSupportDir.appendingPathComponent("coach-report.json")
+                try? encoder.encode(report).write(to: url, options: .atomic)
+                print("sample=\(report.sampleSize) words=\(report.wordsAnalyzed) fillers=\(String(format: "%.1f", report.fillerRate))% sentence=\(String(format: "%.1f", report.averageSentenceLength)) richness=\(String(format: "%.0f", report.vocabularyRichness * 100))% wpm=\(Int(report.averageWPM))")
+                for line in report.observations { print("→ \(line)") }
+                print("--- advice ---"); print(report.advice ?? "(LLM unavailable)")
+                print("--- books ---"); for book in report.books { print("• \(book.title) — \(book.author)") }
+                LLMCleaner.shared.terminateServerNow()
+                exit(0)
+            }
+            RunLoop.main.run()
+        }
+
+        // Headless UI render: `Vocaret --render-window /dir` → one PNG per section
+        if let flagIndex = arguments.firstIndex(of: "--render-window"), arguments.count > flagIndex + 1 {
+            WindowRenderer.run(outputDirectory: arguments[flagIndex + 1])
+            return
+        }
+
         // Headless verification mode: `Vocaret --transcribe file.wav [--language auto|cs|en]`
         if let flagIndex = arguments.firstIndex(of: "--transcribe"), arguments.count > flagIndex + 1 {
             if let langIndex = arguments.firstIndex(of: "--language"), arguments.count > langIndex + 1 {
