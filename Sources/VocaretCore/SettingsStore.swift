@@ -34,6 +34,7 @@ public final class SettingsStore: @unchecked Sendable {
         static let meetingConsentAcknowledged = "meetingConsentAcknowledged"
         static let showHUD = "showHUD"
         static let hasShownWindow = "hasShownWindow"
+        static let pauseMediaWhileRecording = "pauseMediaWhileRecording"
         static let keepModelLoaded = "keepModelLoaded"
         static let dictationKeyCode = "dictationKeyCode"
         static let dictationModifiers = "dictationModifiers"
@@ -103,6 +104,12 @@ public final class SettingsStore: @unchecked Sendable {
     public var meetingConsentAcknowledged: Bool {
         get { boolValue(Key.meetingConsentAcknowledged, default: false) }
         set { defaults.set(newValue, forKey: Key.meetingConsentAcknowledged) }
+    }
+
+    /// Pause Spotify / Music while recording and resume afterwards.
+    public var pauseMediaWhileRecording: Bool {
+        get { boolValue(Key.pauseMediaWhileRecording, default: true) }
+        set { defaults.set(newValue, forKey: Key.pauseMediaWhileRecording) }
     }
 
     public var hasShownWindow: Bool {

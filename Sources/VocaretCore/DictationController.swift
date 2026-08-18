@@ -67,6 +67,7 @@ public final class DictationController {
         case .recording:
             HotkeyManager.shared.endReleaseWatch()
             _ = recorder.stop()
+            MediaPauser.shared.resumeIfPaused()
             unregisterCancelHotkey()
             SoundPlayer.play(.stop)
             HUD.shared.hide()
@@ -86,6 +87,7 @@ public final class DictationController {
     public func stopForTermination() {
         guard state == .recording else { return }
         _ = recorder.stop()
+        MediaPauser.shared.resumeIfPaused()
         state = .idle
     }
 
@@ -112,6 +114,7 @@ public final class DictationController {
             }
             SoundPlayer.play(.start)
             state = .recording
+            MediaPauser.shared.pauseIfPlaying()
             if SettingsStore.shared.pushToTalk {
                 let settings = SettingsStore.shared
                 HotkeyManager.shared.beginReleaseWatch(
@@ -149,6 +152,7 @@ public final class DictationController {
     private func finish() {
         HotkeyManager.shared.endReleaseWatch()
         let samples = recorder.stop()
+        MediaPauser.shared.resumeIfPaused()
         let recordingSeconds = Double(samples.count) / MicRecorder.whisperSampleRate
         let transcriptionStarted = Date()
         SoundPlayer.play(.stop)

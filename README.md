@@ -44,6 +44,9 @@
   anywhere.
 - **Live recording pill** — the overlay shows a level meter driven by your
   microphone while you speak, a timer, and pulses while transcribing.
+- **Music pauses while you talk** — Spotify or Music is paused when recording
+  starts and resumed when it stops (only if it was playing, and only what
+  Vocaret paused). macOS asks once for Automation permission per app.
 
 Everything runs on your Mac: Whisper via Core ML on the Neural Engine, and
 llama.cpp on localhost. See [PRIVACY.md](PRIVACY.md) for the precise details,
@@ -93,6 +96,7 @@ macOS will ask for permissions as you first use each feature:
 | **Microphone** | first dictation | recording your voice |
 | **Accessibility** | first insertion | typing the text at your cursor |
 | **System Audio Recording** | first meeting | hearing other participants |
+| **Automation (Spotify / Music)** | first recording while music plays | pausing and resuming your music |
 
 If Accessibility is missing, the menu-bar icon shows a warning badge and the
 menu offers a one-click fix. Without it, transcripts go to your clipboard

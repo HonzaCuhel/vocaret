@@ -242,6 +242,7 @@ struct SettingsView: View {
             }
             Section("Behaviour") {
                 Toggle("Show the recording overlay", isOn: $settings.showHUD)
+                Toggle("Pause Spotify / Music while recording, resume after", isOn: $settings.pauseMedia)
                 Toggle("Keep a history of dictations on this Mac", isOn: $settings.keepDictationHistory)
                 Toggle("Keep raw meeting audio after transcribing", isOn: $settings.keepRecordings)
                 Toggle("Keep the speech model loaded (faster, ~800 MB RAM)", isOn: $settings.keepModelLoaded)
@@ -304,6 +305,7 @@ struct SettingsSnapshot: Equatable {
     var whisperModel = SettingsStore.shared.whisperModel
     var pushToTalk = SettingsStore.shared.pushToTalk
     var showHUD = SettingsStore.shared.showHUD
+    var pauseMedia = SettingsStore.shared.pauseMediaWhileRecording
     var cleanDictation = SettingsStore.shared.cleanDictation
     var cleanMeetings = SettingsStore.shared.cleanMeetings
     var keepRecordings = SettingsStore.shared.keepRecordings
@@ -321,6 +323,7 @@ struct SettingsSnapshot: Equatable {
     func apply() {
         let s = SettingsStore.shared
         s.language = language; s.whisperModel = whisperModel; s.pushToTalk = pushToTalk; s.showHUD = showHUD
+        s.pauseMediaWhileRecording = pauseMedia
         s.cleanDictation = cleanDictation; s.cleanMeetings = cleanMeetings; s.keepRecordings = keepRecordings
         s.keepDictationHistory = keepDictationHistory; s.keepModelLoaded = keepModelLoaded
         s.dictationKeyCode = dictationKeyCode; s.dictationModifiers = dictationModifiers

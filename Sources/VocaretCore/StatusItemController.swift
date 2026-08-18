@@ -81,6 +81,7 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
 
         menu.addItem(makeToggle(title: "Hold Hotkey to Talk (release inserts)", action: #selector(togglePushToTalk)))
         menu.addItem(makeToggle(title: "Show Recording Overlay", action: #selector(toggleShowHUD)))
+        menu.addItem(makeToggle(title: "Pause Music While Recording", action: #selector(togglePauseMedia)))
         menu.addItem(makeToggle(title: "Clean Dictation with AI", action: #selector(toggleCleanDictation)))
         menu.addItem(makeToggle(title: "Structure Meetings with AI", action: #selector(toggleCleanMeetings)))
         menu.addItem(makeToggle(title: "Keep Meeting Audio Files", action: #selector(toggleKeepRecordings)))
@@ -190,6 +191,7 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
             switch item.action {
             case #selector(togglePushToTalk): item.state = settings.pushToTalk ? .on : .off
             case #selector(toggleShowHUD): item.state = settings.showHUD ? .on : .off
+            case #selector(togglePauseMedia): item.state = settings.pauseMediaWhileRecording ? .on : .off
             case #selector(toggleCleanDictation): item.state = settings.cleanDictation ? .on : .off
             case #selector(toggleCleanMeetings): item.state = settings.cleanMeetings ? .on : .off
             case #selector(toggleKeepRecordings): item.state = settings.keepRecordings ? .on : .off
@@ -227,6 +229,11 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
 
     @objc private func togglePushToTalk() {
         SettingsStore.shared.pushToTalk.toggle()
+        refresh()
+    }
+
+    @objc private func togglePauseMedia() {
+        SettingsStore.shared.pauseMediaWhileRecording.toggle()
         refresh()
     }
 

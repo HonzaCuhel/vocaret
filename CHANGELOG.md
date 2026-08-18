@@ -15,6 +15,8 @@ change behaviour and defaults.
 - History with search, detail, copy, delete; Meetings viewer with copy/reveal.
 - Settings UI with a shortcut recorder, model picker, vocabulary editor, toggles.
 - Recording overlay now animates with the live microphone level and shows a timer.
+- Music (Spotify, Apple Music) is paused while recording and resumed after —
+  only if it was playing, only what Vocaret paused. Toggle in Settings / menu.
 - Dictation records carry timing (recording length, transcription latency) in
   `dictation-history.jsonl`; the old Markdown history is imported once.
 

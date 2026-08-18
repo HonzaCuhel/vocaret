@@ -66,6 +66,8 @@ for those recordings. The author of Vocaret is not — no data ever reaches them
   powerful permission; the source is public so you can verify how it is used
   (`Sources/VocaretCore/TextInserter.swift`).
 - **System Audio Recording** — only for meeting mode, to hear other participants.
+- **Automation for Spotify / Music** — only to send *pause* when a recording
+  starts and *play* when it ends. Vocaret reads nothing else from these apps.
 
 Vocaret is not sandboxed, because the Core Audio process tap and caret insertion
 are not possible inside the App Sandbox.

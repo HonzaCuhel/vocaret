@@ -134,6 +134,7 @@ public final class MeetingController {
             self.startedAt = Date()
             SoundPlayer.play(.start)
             state = .recording
+            MediaPauser.shared.pauseIfPlaying()
             HUD.shared.beginRecording(
                 text: "Recording meeting · \(SettingsStore.shared.meetingHotkeyLabel) to finish",
                 level: { [weak micRecorder] in micRecorder?.level ?? 0 }
@@ -229,6 +230,7 @@ public final class MeetingController {
         }
         systemTap = nil
         micRecorder.stop()
+        MediaPauser.shared.resumeIfPaused()
     }
 
     private func deleteRecordings() {

@@ -53,6 +53,7 @@ public enum SelfTest {
             case "meeting": await meetingTest(seconds: seconds)
             case "keys": await keysTest()
             case "hud": await hudTest()
+            case "media": await mediaTest()
             case "all":
                 await micTest(seconds: seconds)
                 await tapTest(seconds: seconds)
@@ -374,6 +375,38 @@ public enum SelfTest {
         check(textView.string.contains("Před: vloženo"), "[keys] text inserted at the caret, existing content preserved")
 
         window.orderOut(nil)
+    }
+
+    /// Pause-on-record / resume-after with whatever player is running.
+    @MainActor
+    static func mediaTest() async {
+        let pauser = MediaPauser.shared
+        let players = pauser.runningPlayers()
+        emit("[media] running players: \(players.map(\.name).joined(separator: ", ").isEmpty ? "none" : players.map(\.name).joined(separator: ", "))")
+        guard !players.isEmpty else {
+            emit("[media] nothing to test — start Spotify or Music and play something, then rerun")
+            return
+        }
+        for p in players { emit("[media] \(p.name) state before: \(pauser.playerState(p) ?? "unknown (permission denied?)")") }
+        let playing = players.filter { pauser.playerState($0) == "playing" }
+        guard !playing.isEmpty else {
+            emit("[media] no player is playing right now — press play in \(players[0].name) and rerun for the full check")
+            return
+        }
+        let paused = await withCheckedContinuation { cont in pauser.pauseIfPlaying { cont.resume(returning: $0) } }
+        try? await Task.sleep(nanoseconds: 700_000_000)
+        for p in playing { emit("[media] \(p.name) state after pause: \(pauser.playerState(p) ?? "?")") }
+        check(!paused.isEmpty, "[media] pauseIfPlaying paused the playing app(s)")
+        check(playing.allSatisfy { pauser.playerState($0) == "paused" }, "[media] player reports 'paused' during recording")
+        try? await Task.sleep(nanoseconds: 1_500_000_000)
+        let resumed = await withCheckedContinuation { cont in pauser.resumeIfPaused { cont.resume(returning: $0) } }
+        try? await Task.sleep(nanoseconds: 700_000_000)
+        for p in playing { emit("[media] \(p.name) state after resume: \(pauser.playerState(p) ?? "?")") }
+        check(!resumed.isEmpty, "[media] resumeIfPaused resumed what we paused")
+        check(playing.allSatisfy { pauser.playerState($0) == "playing" }, "[media] player is playing again")
+        // And the guard: resuming twice must be a no-op (nothing tracked).
+        let again = await withCheckedContinuation { cont in pauser.resumeIfPaused { cont.resume(returning: $0) } }
+        check(again.isEmpty, "[media] second resume is a no-op")
     }
 
     /// Drives the recorder pill through its phases with a synthetic level and
