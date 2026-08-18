@@ -11,6 +11,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         statusController = StatusItemController(dictation: dictation, meeting: meeting)
         registerHotkeys()
         LLMCleaner.shared.reapStaleServer()
+        if SettingsStore.shared.cleanDictation { LLMCleaner.shared.warmUp() }
 
         // First launch: open the window so a new user sees what this is and
         // where the shortcut lives, instead of an unexplained menu-bar glyph.

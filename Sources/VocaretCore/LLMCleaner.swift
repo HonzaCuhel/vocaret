@@ -59,7 +59,10 @@ public actor LLMCleaner {
     nonisolated let processBox = ProcessBox()
     private var idleShutdownTask: Task<Void, Never>?
 
-    private let idleTimeout: TimeInterval = 120
+    /// How long the server stays resident after the last request. Measured:
+    /// a cold start costs ~1.7 s + ~1 s of prompt evaluation, so with cleanup
+    /// enabled we keep it warm for a while (RAM ~2.8 GB while resident).
+    private var idleTimeout: TimeInterval { SettingsStore.shared.cleanDictation ? 600 : 120 }
     private let startupTimeout: TimeInterval = 90
 
     public init() {}
@@ -100,6 +103,20 @@ public actor LLMCleaner {
         Log.info("Reaping llama-server (pid \(pid)) left by a previous instance")
         kill(pid, SIGTERM)
         try? FileManager.default.removeItem(at: Self.pidFile)
+    }
+
+    /// Start the server and prime the prompt cache with the dictation system
+    /// prompt, without waiting. Called when a recording STARTS, so by the time
+    /// Whisper is done the ~2.5 s cold path has already been paid in the
+    /// background. Harmless if the server is already up.
+    public nonisolated func warmUp() {
+        Task {
+            _ = try? await self.chat(
+                system: LLMPrompts.dictationSystem + LLMPrompts.vocabularyHint(terms: Vocabulary.shared.terms),
+                user: ".",
+                maxTokens: 1
+            )
+        }
     }
 
     /// Cheap check for the UI: is a llama-server binary installed at all?
@@ -373,7 +390,7 @@ public actor LLMCleaner {
             if !process.isRunning {
                 break
             }
-            try? await Task.sleep(nanoseconds: 500_000_000)
+            try? await Task.sleep(nanoseconds: 100_000_000)
         }
         processBox.terminate()
         throw LLMError.serverDidNotStart
@@ -443,7 +460,8 @@ public actor LLMCleaner {
 
     private func scheduleIdleShutdown() {
         idleShutdownTask?.cancel()
-        idleShutdownTask = Task { [processBox, idleTimeout] in
+        let idleTimeout = self.idleTimeout
+        idleShutdownTask = Task { [processBox] in
             try? await Task.sleep(nanoseconds: UInt64(idleTimeout * 1_000_000_000))
             guard !Task.isCancelled else { return }
             Log.info("llama-server idle timeout — shutting down to free RAM")

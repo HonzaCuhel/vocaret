@@ -135,6 +135,7 @@ public final class MeetingController {
             SoundPlayer.play(.start)
             state = .recording
             MediaPauser.shared.pauseIfPlaying()
+            if SettingsStore.shared.cleanMeetings { LLMCleaner.shared.warmUp() }
             HUD.shared.beginRecording(
                 text: "Recording meeting · \(SettingsStore.shared.meetingHotkeyLabel) to finish",
                 level: { [weak micRecorder] in micRecorder?.level ?? 0 }

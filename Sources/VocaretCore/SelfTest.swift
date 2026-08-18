@@ -162,10 +162,21 @@ public enum SelfTest {
     @MainActor
     static func llmTest() async {
         let dirty = "no takže ehm zítra máme jako schůzku v devět a ehm potřebuju abys mi vlastně poslal ten report jo"
-        emit("[llm] cleanDictation via LLMCleaner (spawns llama-server if needed)…")
+        // Real-world path: warm-up fires when recording starts; the user then
+        // speaks for a few seconds; only then is cleanup requested.
+        LLMCleaner.shared.terminateServerNow()
+        try? await Task.sleep(nanoseconds: 1_500_000_000)
+        emit("[llm] warmUp() at 'recording start', then 4 s of 'speaking'…")
+        LLMCleaner.shared.warmUp()
+        try? await Task.sleep(nanoseconds: 4_000_000_000)
         let started = Date()
         let cleaned = await LLMCleaner.shared.cleanDictation(dirty)
-        emit("[llm] took \(String(format: "%.1f", Date().timeIntervalSince(started)))s")
+        let felt = Date().timeIntervalSince(started)
+        emit("[llm] cleanup felt latency after warm-up: \(String(format: "%.2f", felt))s")
+        check(felt < 1.5, "[llm] warm cleanup under 1.5 s (was ~3 s cold)")
+        let startedSecond = Date()
+        _ = await LLMCleaner.shared.cleanDictation("Ten v Hisper zase nefunguje, zeptej se kodexu na revijev.")
+        emit("[llm] second cleanup: \(String(format: "%.2f", Date().timeIntervalSince(startedSecond)))s")
         emit("[llm] IN : \(dirty)")
         emit("[llm] OUT: \(cleaned)")
         check(cleaned != dirty, "[llm] output differs from input (server reachable, model answered)")

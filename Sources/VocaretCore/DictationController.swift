@@ -115,6 +115,8 @@ public final class DictationController {
             SoundPlayer.play(.start)
             state = .recording
             MediaPauser.shared.pauseIfPlaying()
+            // Hide the LLM cold start behind the time the user spends speaking.
+            if SettingsStore.shared.cleanDictation { LLMCleaner.shared.warmUp() }
             if SettingsStore.shared.pushToTalk {
                 let settings = SettingsStore.shared
                 HotkeyManager.shared.beginReleaseWatch(
