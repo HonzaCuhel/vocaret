@@ -73,6 +73,45 @@ final class VocabularyTests: XCTestCase {
         XCTAssertEqual(TranscriptCorrector.apply("ten whisper", vocabulary: v), "ten Whisper")
     }
 
+    func testSentenceInitialCapitalizationIsNotLearned() {
+        // The LLM capitalises the first word of every sentence. That must not
+        // become a permanent "a" → "A" rule applied mid-sentence.
+        let v = Vocabulary(persistence: nil)
+        for _ in 0..<3 {
+            v.learn(from: "a pak jsme šli domů. the end", to: "A pak jsme šli domů. The end")
+        }
+        XCTAssertNil(v.learnedCorrections["a"])
+        XCTAssertNil(v.learnedCorrections["the"])
+        // …but a proper-noun casing fix in the middle of a sentence IS learned.
+        for _ in 0..<2 { v.learn(from: "ten whisper zase spadl", to: "ten Whisper zase spadl") }
+        XCTAssertEqual(v.learnedCorrections["whisper"], "Whisper")
+    }
+
+    func testAWordTheLLMLeavesAloneElsewhereIsNotLearnedAsWrong() {
+        // "byli" → "byly" is grammatical agreement, not a spelling error: the same
+        // word survives cleanup untouched in other sentences, so it is vetoed.
+        let v = Vocabulary(persistence: nil)
+        v.learn(from: "oni byli doma", to: "oni byly doma")
+        v.learn(from: "oni byli doma", to: "oni byly doma")
+        v.learn(from: "muži byli venku", to: "muži byli venku") // untouched → real word
+        XCTAssertNil(v.learnedCorrections["byli"])
+    }
+
+    func testExplicitVocabularyBeatsLearnedCorrection() {
+        let v = vocabulary(terms: ["WhisperKit"], learned: ["whisperkit": "Whisperkit"])
+        XCTAssertEqual(TranscriptCorrector.apply("Použij whisperkit.", vocabulary: v), "Použij WhisperKit.")
+    }
+
+    func testRealWordsAreNotFuzzySnappedToTerms() {
+        // "codes" is one edit from "Codex", "clause" one from "Claude" — both are
+        // real English words and must survive.
+        let v = vocabulary(terms: ["Codex", "Claude"])
+        XCTAssertEqual(TranscriptCorrector.apply("The codes have a clause.", vocabulary: v), "The codes have a clause.")
+        // …while a genuine non-word near miss still snaps. ("kodexu" would NOT:
+        // it is a real Czech word — that case is the LLM's job via the vocabulary hint.)
+        XCTAssertEqual(TranscriptCorrector.apply("Zeptej se Codexx.", vocabulary: v), "Zeptej se Codex.")
+    }
+
     func testLearningIgnoresRewritesThatChangeWordCount() {
         let v = Vocabulary(persistence: nil)
         // The LLM removed a filler word — positions no longer line up, so

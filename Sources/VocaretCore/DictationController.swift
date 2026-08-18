@@ -87,7 +87,7 @@ public final class DictationController {
     public func stopForTermination() {
         guard state == .recording else { return }
         _ = recorder.stop()
-        MediaPauser.shared.resumeIfPaused()
+        MediaPauser.shared.resumeIfPausedNow()
         state = .idle
     }
 

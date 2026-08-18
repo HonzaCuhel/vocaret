@@ -233,7 +233,8 @@ public enum SpeechCoach {
         )
 
         if let generate, analysis.totalWords >= 60 {
-            let samples = recent.suffix(12).map(\.text).joined(separator: "\n— ")
+            // `records` arrive newest-first; take the newest 12 (in speaking order).
+            let samples = recent.prefix(12).reversed().map(\.text).joined(separator: "\n— ")
             let user = """
             Measurements over the last \(days) days (\(recent.count) dictations, \(analysis.totalWords) words):
             - filler words: \(fmt(analysis.fillerRate)) per 100 words (top: \(analysis.topFillers.prefix(4).map(\.word).joined(separator: ", ")))

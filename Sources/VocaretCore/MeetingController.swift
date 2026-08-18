@@ -53,6 +53,7 @@ public final class MeetingController {
     public func stopForTermination() {
         guard state == .recording else { return }
         stopCapture()
+        MediaPauser.shared.resumeIfPausedNow()
         state = .idle
     }
 

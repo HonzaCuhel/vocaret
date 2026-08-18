@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 
 /// Applies the user's vocabulary to a transcript: exact-but-miscased terms are
@@ -54,11 +55,14 @@ public enum TranscriptCorrector {
         guard !core.isEmpty else { return word }
 
         let lowered = core.lowercased()
-        if let fixed = learned[lowered] { return fixed + trailing }
+        // The user's explicit spelling always wins over anything learned.
         if let fixed = canonical[lowered] { return fixed + trailing }
+        if let fixed = learned[lowered] { return fixed + trailing }
 
-        // Fuzzy: only for words long enough that a near miss is not a coincidence.
-        if core.count >= 5 {
+        // Fuzzy: only for words long enough that a near miss is not a coincidence,
+        // and never for words that are themselves valid ("codes" must not become
+        // "Codex", "clause" must not become "Claude").
+        if core.count >= 5, !isRealWord(core) {
             let budget = core.count >= 8 ? 2 : 1
             var best: (term: String, distance: Int)?
             for term in terms where abs(term.count - core.count) <= budget {
@@ -71,6 +75,27 @@ public enum TranscriptCorrector {
         }
         return word
     }
+
+    /// True if the system spell checker knows the word in any of the app's
+    /// languages (Czech + English + auto-detect set). Cached per process.
+    static func isRealWord(_ word: String) -> Bool {
+        let key = word.lowercased()
+        realWordLock.lock()
+        if let cached = realWordCache[key] { realWordLock.unlock(); return cached }
+        realWordLock.unlock()
+        var languages = ["en", "cs"] + SettingsStore.shared.autoLanguages
+        languages = Array(Set(languages))
+        let checker = NSSpellChecker.shared
+        var real = false
+        for language in languages {
+            let range = checker.checkSpelling(of: word, startingAt: 0, language: language, wrap: false, inSpellDocumentWithTag: 0, wordCount: nil)
+            if range.location == NSNotFound { real = true; break }
+        }
+        realWordLock.lock(); realWordCache[key] = real; realWordLock.unlock()
+        return real
+    }
+    private static var realWordCache: [String: Bool] = [:]
+    private static let realWordLock = NSLock()
 
     /// Levenshtein distance, iterative single-row.
     static func editDistance(_ a: String, _ b: String) -> Int {

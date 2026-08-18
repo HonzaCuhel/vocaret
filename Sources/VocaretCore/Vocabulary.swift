@@ -18,6 +18,9 @@ public final class Vocabulary: @unchecked Sendable {
     private let directory: URL?
     private var _terms: [String] = []
     private var counted: [String: (to: String, count: Int)] = [:]
+    /// Words the cleanup has left UNCHANGED at least once — i.e. real words the
+    /// LLM only sometimes rewrites for grammar/agreement. Never learned.
+    private var vetoed: Set<String> = []
 
     public init(persistence directory: URL?) {
         self.directory = directory
@@ -70,11 +73,24 @@ public final class Vocabulary: @unchecked Sendable {
 
         var changed = false
         lock.lock()
+        var previousEndedSentence = true // position 0 counts as sentence start
         for (rawBefore, rawAfter) in zip(before, after) {
             let wrong = Self.strip(rawBefore)
             let right = Self.strip(rawAfter)
-            guard Self.isPlausibleCorrection(wrong: wrong, right: right) else { continue }
+            let sentenceStart = previousEndedSentence
+            previousEndedSentence = rawAfter.last.map { ".!?…".contains($0) } ?? false
+            guard !wrong.isEmpty else { continue }
             let key = wrong.lowercased()
+            // Left alone by the cleanup → it is a real word; a rewrite of it
+            // elsewhere is grammar (byli/byly), not spelling. Veto for good.
+            if wrong == right {
+                if counted[key] != nil || vetoed.contains(key) { vetoed.insert(key); counted[key] = nil; changed = true }
+                continue
+            }
+            guard !vetoed.contains(key) else { continue }
+            guard Self.isPlausibleCorrection(wrong: wrong, right: right) else { continue }
+            // Sentence-initial capitalisation is punctuation work, not a spelling.
+            if sentenceStart, wrong.lowercased() == right.lowercased() { continue }
             let existing = counted[key]
             if let existing, existing.to == right {
                 counted[key] = (right, existing.count + 1)
@@ -123,9 +139,13 @@ public final class Vocabulary: @unchecked Sendable {
                 .map { $0.trimmingCharacters(in: .whitespaces) }
                 .filter { !$0.isEmpty && !$0.hasPrefix("#") }
         }
-        if let correctionsFile, let data = try? Data(contentsOf: correctionsFile),
-           let raw = try? JSONDecoder().decode([String: StoredCorrection].self, from: data) {
-            counted = raw.mapValues { (to: $0.to, count: $0.count) }
+        if let correctionsFile, let data = try? Data(contentsOf: correctionsFile) {
+            if let stored = try? JSONDecoder().decode(StoredCorrections.self, from: data) {
+                counted = stored.corrections.mapValues { (to: $0.to, count: $0.count) }
+                vetoed = Set(stored.vetoed)
+            } else if let raw = try? JSONDecoder().decode([String: StoredCorrection].self, from: data) {
+                counted = raw.mapValues { (to: $0.to, count: $0.count) } // pre-veto file format
+            }
         }
     }
 
@@ -134,10 +154,18 @@ public final class Vocabulary: @unchecked Sendable {
         let count: Int
     }
 
+    private struct StoredCorrections: Codable {
+        var corrections: [String: StoredCorrection]
+        var vetoed: [String]
+    }
+
     public func save() {
         lock.lock()
         let terms = _terms
-        let corrections = counted.mapValues { StoredCorrection(to: $0.to, count: $0.count) }
+        let stored = StoredCorrections(
+            corrections: counted.mapValues { StoredCorrection(to: $0.to, count: $0.count) },
+            vetoed: Array(vetoed).sorted()
+        )
         lock.unlock()
 
         if let vocabularyFile {
@@ -151,7 +179,7 @@ public final class Vocabulary: @unchecked Sendable {
             try? (header + terms.joined(separator: "\n") + "\n")
                 .write(to: vocabularyFile, atomically: true, encoding: .utf8)
         }
-        if let correctionsFile, let data = try? JSONEncoder().encode(corrections) {
+        if let correctionsFile, let data = try? JSONEncoder().encode(stored) {
             try? data.write(to: correctionsFile, options: .atomic)
         }
     }

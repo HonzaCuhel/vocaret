@@ -12,6 +12,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         registerHotkeys()
         LLMCleaner.shared.reapStaleServer()
         if SettingsStore.shared.cleanDictation { LLMCleaner.shared.warmUp() }
+        MediaPauser.shared.primePermissions()
 
         // First launch: open the window so a new user sees what this is and
         // where the shortcut lives, instead of an unexplained menu-bar glyph.
