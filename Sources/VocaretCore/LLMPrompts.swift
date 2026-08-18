@@ -74,6 +74,21 @@ public enum LLMPrompts {
         """
     }
 
+    public static func coachBooksSystem(czech: Bool) -> String {
+        let language = czech ? "Czech" : "English"
+        return """
+        You are choosing reading for someone based on how they actually speak. You receive
+        measurements, verbatim dictation samples, and a BOOK LIST. Pick the THREE items from
+        the BOOK LIST that would help this specific person most, given what they talk about
+        and how.
+
+        Output exactly three lines, nothing else, each in the form:
+        <exact title from the list> :: <one sentence in \(language), max 18 words, saying why for THIS person — refer to something concrete in their samples or numbers>
+
+        Only titles from the BOOK LIST. No numbering, no extra text.
+        """
+    }
+
     // MARK: - Long meetings (sliced)
 
     public static let meetingPartSystem = """

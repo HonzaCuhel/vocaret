@@ -9,7 +9,7 @@ struct MeetingsView: View {
     @State private var copied = false
 
     var body: some View {
-        HSplitView {
+        HStack(spacing: 0) {
             List(model.meetings, selection: $selection) { meeting in
                 VStack(alignment: .leading, spacing: 3) {
                     Text(meeting.title).lineLimit(1)
@@ -19,7 +19,10 @@ struct MeetingsView: View {
                 .padding(.vertical, 3)
                 .tag(meeting.id)
             }
-            .frame(minWidth: 300, idealWidth: 340)
+            .listStyle(.inset)
+            .frame(minWidth: 300, idealWidth: 360, maxWidth: 440)
+
+            Divider()
 
             if let meeting = model.meetings.first(where: { $0.id == selection }) {
                 let text = model.meetingText(meeting)
@@ -39,6 +42,7 @@ struct MeetingsView: View {
                     }
                 }
                 .padding(20)
+                .frame(minWidth: 380, maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             } else {
                 ContentUnavailableView(
                     "No meeting selected",
@@ -137,16 +141,34 @@ struct CoachView: View {
                         }
                     }
                     section("Worth reading") {
+                        Text(report.books.contains { $0.pickedBecause != nil }
+                             ? "Picked for you from a curated list, based on the measurements above."
+                             : "General picks — nothing in the measurements stood out yet. Dictate more and the list adapts.")
+                            .font(.caption).foregroundStyle(.secondary)
                         ForEach(report.books) { book in
-                            VStack(alignment: .leading, spacing: 2) {
+                            VStack(alignment: .leading, spacing: 3) {
                                 HStack(spacing: 6) {
-                                    Text(book.title).fontWeight(.semibold)
+                                    if let url = URL(string: book.url) {
+                                        Link(destination: url) { Text(book.title).fontWeight(.semibold) }
+                                        Image(systemName: "arrow.up.right.square").font(.caption).foregroundStyle(.tint)
+                                    } else {
+                                        Text(book.title).fontWeight(.semibold)
+                                    }
                                     Text("— \(book.author)").foregroundStyle(.secondary)
                                 }
-                                if let cz = book.czechEdition { Text("česky: \(cz)").font(.caption).foregroundStyle(.secondary) }
+                                if let because = book.pickedBecause {
+                                    Label(because, systemImage: "target").font(.caption).foregroundStyle(.tint)
+                                }
                                 Text(book.why).font(.callout)
+                                if let cz = book.czechEdition {
+                                    if let czURL = book.czechURL.flatMap(URL.init(string:)) {
+                                        Link(destination: czURL) { Text("česky: \(cz)").font(.caption) }
+                                    } else {
+                                        Text("česky: \(cz)").font(.caption).foregroundStyle(.secondary)
+                                    }
+                                }
                             }
-                            .padding(.vertical, 4)
+                            .padding(.vertical, 5)
                         }
                     }
                     Text("Based on \(report.sampleSize) dictations · \(report.wordsAnalyzed) words · \(report.generatedAt.formatted(date: .abbreviated, time: .shortened))")

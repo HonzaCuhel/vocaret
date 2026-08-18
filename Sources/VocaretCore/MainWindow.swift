@@ -19,10 +19,8 @@ public final class MainWindowController: NSObject, NSWindowDelegate {
             let hosting = NSHostingController(rootView: MainView().environmentObject(AppModel.shared))
             let window = NSWindow(contentViewController: hosting)
             window.title = "Vocaret"
-            window.setContentSize(NSSize(width: 980, height: 660))
-            window.minSize = NSSize(width: 820, height: 520)
-            window.styleMask.insert(.fullSizeContentView)
-            window.titlebarAppearsTransparent = true
+            window.setContentSize(NSSize(width: 1040, height: 680))
+            window.minSize = NSSize(width: 860, height: 540)
             window.toolbarStyle = .unified
             window.center()
             window.setFrameAutosaveName("VocaretMainWindow")
@@ -301,7 +299,7 @@ struct HistoryView: View {
     }
 
     var body: some View {
-        HSplitView {
+        HStack(spacing: 0) {
             List(filtered, selection: $selection) { record in
                 VStack(alignment: .leading, spacing: 3) {
                     Text(record.text).lineLimit(2)
@@ -316,16 +314,21 @@ struct HistoryView: View {
                 .padding(.vertical, 3)
                 .tag(record.id)
             }
-            .frame(minWidth: 320, idealWidth: 380)
-            .searchable(text: $query, placement: .sidebar, prompt: "Search transcripts")
+            .listStyle(.inset)
+            .frame(minWidth: 340, idealWidth: 420, maxWidth: 520)
 
-            if let record = filtered.first(where: { $0.id == selection }) {
-                TranscriptDetail(record: record)
-            } else {
-                ContentUnavailableView("Select a dictation", systemImage: "text.quote", description: Text("\(model.records.count) transcripts on this Mac. Nothing here has left it."))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            Divider()
+
+            Group {
+                if let record = filtered.first(where: { $0.id == selection }) {
+                    TranscriptDetail(record: record)
+                } else {
+                    ContentUnavailableView("Select a dictation", systemImage: "text.quote", description: Text("\(model.records.count) transcripts on this Mac. Nothing here has left it."))
+                }
             }
+            .frame(minWidth: 380, maxWidth: .infinity, maxHeight: .infinity)
         }
+        .searchable(text: $query, placement: .toolbar, prompt: "Search transcripts")
         .navigationTitle("History")
         .toolbar {
             ToolbarItem { Button { model.copy(model.records.first?.text ?? "") } label: { Label("Copy last", systemImage: "doc.on.doc") }.disabled(model.records.isEmpty) }
@@ -341,12 +344,17 @@ struct TranscriptDetail: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 14) {
-                metaChip("calendar", record.date.formatted(date: .abbreviated, time: .shortened))
-                metaChip("text.word.spacing", "\(record.wordCount) words")
-                if record.recordingSeconds > 0 { metaChip("waveform", String(format: "%.1f s · %d wpm", record.recordingSeconds, Int(record.wordsPerMinute))) }
-                if record.transcriptionSeconds > 0 { metaChip("bolt", String(format: "%.1f s latency", record.transcriptionSeconds)) }
-                Spacer()
+            Grid(alignment: .leading, horizontalSpacing: 18, verticalSpacing: 6) {
+                GridRow {
+                    metaChip("calendar", record.date.formatted(date: .abbreviated, time: .shortened))
+                    metaChip("text.word.spacing", "\(record.wordCount) words")
+                }
+                if record.recordingSeconds > 0 || record.transcriptionSeconds > 0 {
+                    GridRow {
+                        if record.recordingSeconds > 0 { metaChip("waveform", String(format: "%.1f s spoken · %d wpm", record.recordingSeconds, Int(record.wordsPerMinute))) } else { Color.clear.frame(height: 0) }
+                        if record.transcriptionSeconds > 0 { metaChip("bolt", String(format: "%.1f s to transcribe", record.transcriptionSeconds)) } else { Color.clear.frame(height: 0) }
+                    }
+                }
             }
             ScrollView {
                 Text(record.text)
