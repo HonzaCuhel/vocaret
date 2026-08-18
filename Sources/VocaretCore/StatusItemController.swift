@@ -26,6 +26,13 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
 
         statusItem.menu = buildMenu()
         refresh()
+        NotificationCenter.default.addObserver(forName: .vocaretUILanguageChanged, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor in
+                guard let self else { return }
+                self.statusItem.menu = self.buildMenu()
+                self.refresh()
+            }
+        }
     }
 
     // MARK: - Menu construction
@@ -37,14 +44,14 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
         stateItem.isEnabled = false
         menu.addItem(stateItem)
 
-        let openWindow = NSMenuItem(title: "Open Vocaret…", action: #selector(openMainWindow), keyEquivalent: "o")
+        let openWindow = NSMenuItem(title: L("Open Vocaret…"), action: #selector(openMainWindow), keyEquivalent: "o")
         openWindow.keyEquivalentModifierMask = [.command]
         openWindow.target = self
         menu.addItem(openWindow)
 
         // Shown only while Accessibility is missing — the one condition that
         // makes dictation look silently broken.
-        accessibilityWarningItem.title = "⚠︎ Accessibility not granted — click to fix"
+        accessibilityWarningItem.title = L("⚠︎ Accessibility not granted — click to fix")
         accessibilityWarningItem.target = self
         accessibilityWarningItem.action = #selector(fixAccessibility)
         menu.addItem(accessibilityWarningItem)
@@ -61,7 +68,7 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
         meetingItem.action = #selector(toggleMeeting)
         menu.addItem(meetingItem)
 
-        cancelItem.title = "Cancel Recording"
+        cancelItem.title = L("Cancel Recording")
         cancelItem.target = self
         cancelItem.action = #selector(cancelRecording)
         menu.addItem(cancelItem)
@@ -75,49 +82,60 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
             item.representedObject = code
             languageMenu.addItem(item)
         }
-        let languageItem = NSMenuItem(title: "Language", action: nil, keyEquivalent: "")
+        let languageItem = NSMenuItem(title: L("Language"), action: nil, keyEquivalent: "")
         languageItem.submenu = languageMenu
         menu.addItem(languageItem)
 
+        let appearanceMenu = NSMenu()
+        for option in Appearance.options {
+            let item = NSMenuItem(title: option.title, action: #selector(selectAppearance(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = "appearance:" + option.id
+            appearanceMenu.addItem(item)
+        }
+        let appearanceItem = NSMenuItem(title: L("Appearance"), action: nil, keyEquivalent: "")
+        appearanceItem.submenu = appearanceMenu
+        menu.addItem(appearanceItem)
+
         menu.addItem(makeToggle(title: "Hold Hotkey to Talk (release inserts)", action: #selector(togglePushToTalk)))
-        menu.addItem(makeToggle(title: "Show Recording Overlay", action: #selector(toggleShowHUD)))
-        menu.addItem(makeToggle(title: "Pause Music While Recording", action: #selector(togglePauseMedia)))
-        menu.addItem(makeToggle(title: "Clean Dictation with AI", action: #selector(toggleCleanDictation)))
-        menu.addItem(makeToggle(title: "Structure Meetings with AI", action: #selector(toggleCleanMeetings)))
-        menu.addItem(makeToggle(title: "Keep Meeting Audio Files", action: #selector(toggleKeepRecordings)))
-        menu.addItem(makeToggle(title: "Start at Login", action: #selector(toggleLoginItem)))
+        menu.addItem(makeToggle(title: L("Show Recording Overlay"), action: #selector(toggleShowHUD)))
+        menu.addItem(makeToggle(title: L("Pause Music While Recording"), action: #selector(togglePauseMedia)))
+        menu.addItem(makeToggle(title: L("Clean Dictation with AI"), action: #selector(toggleCleanDictation)))
+        menu.addItem(makeToggle(title: L("Structure Meetings with AI"), action: #selector(toggleCleanMeetings)))
+        menu.addItem(makeToggle(title: L("Keep Meeting Audio Files"), action: #selector(toggleKeepRecordings)))
+        menu.addItem(makeToggle(title: L("Start at Login"), action: #selector(toggleLoginItem)))
 
         menu.addItem(.separator())
 
-        let addWord = NSMenuItem(title: "Add Word to Vocabulary…", action: #selector(addVocabularyWord), keyEquivalent: "")
+        let addWord = NSMenuItem(title: L("Add Word to Vocabulary…"), action: #selector(addVocabularyWord), keyEquivalent: "")
         addWord.target = self
         menu.addItem(addWord)
 
-        let openVocabulary = NSMenuItem(title: "Edit Vocabulary…", action: #selector(openVocabularyFile), keyEquivalent: "")
+        let openVocabulary = NSMenuItem(title: L("Edit Vocabulary…"), action: #selector(openVocabularyFile), keyEquivalent: "")
         openVocabulary.target = self
         menu.addItem(openVocabulary)
 
         menu.addItem(.separator())
 
-        copyLastItem.title = "Copy Last Dictation"
+        copyLastItem.title = L("Copy Last Dictation")
         copyLastItem.target = self
         copyLastItem.action = #selector(copyLastTranscript)
         menu.addItem(copyLastItem)
 
-        let openHistory = NSMenuItem(title: "Open Dictation History", action: #selector(openDictationHistory), keyEquivalent: "")
+        let openHistory = NSMenuItem(title: L("Open Dictation History"), action: #selector(openDictationHistory), keyEquivalent: "")
         openHistory.target = self
         menu.addItem(openHistory)
 
-        let openFolder = NSMenuItem(title: "Open Meetings Folder", action: #selector(openMeetingsFolder), keyEquivalent: "")
+        let openFolder = NSMenuItem(title: L("Open Meetings Folder"), action: #selector(openMeetingsFolder), keyEquivalent: "")
         openFolder.target = self
         menu.addItem(openFolder)
 
-        let permissions = NSMenuItem(title: "Check Permissions…", action: #selector(checkPermissions), keyEquivalent: "")
+        let permissions = NSMenuItem(title: L("Check Permissions…"), action: #selector(checkPermissions), keyEquivalent: "")
         permissions.target = self
         menu.addItem(permissions)
 
         menu.addItem(.separator())
-        let quit = NSMenuItem(title: "Quit Vocaret", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        let quit = NSMenuItem(title: L("Quit Vocaret"), action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         menu.addItem(quit)
 
         return menu
@@ -145,7 +163,7 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
             copyLastItem.title = "Copy Last Dictation — “\(preview)”"
             copyLastItem.isEnabled = true
         } else {
-            copyLastItem.title = "Copy Last Dictation"
+            copyLastItem.title = L("Copy Last Dictation")
             copyLastItem.isEnabled = false
         }
 
@@ -154,16 +172,16 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
         switch (dictation.state, meeting.state) {
         case (.recording, _):
             symbolName = "mic.fill"
-            stateText = "Recording dictation…"
+            stateText = L("Recording dictation…")
         case (.transcribing, _):
             symbolName = "waveform"
-            stateText = "Transcribing dictation…"
+            stateText = L("Transcribing dictation…")
         case (_, .recording):
             symbolName = "record.circle"
-            stateText = "Recording meeting…"
+            stateText = L("Recording meeting…")
         case (_, .processing):
             symbolName = "waveform"
-            stateText = "Processing meeting…"
+            stateText = L("Processing meeting…")
         default:
             symbolName = accessibilityOK ? "mic" : "mic.badge.xmark"
             stateText = accessibilityOK
@@ -178,9 +196,9 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
         )
         stateItem.title = stateText
 
-        dictationItem.title = (dictation.state == .recording ? "Stop Dictation & Insert" : "Start Dictation")
+        dictationItem.title = (dictation.state == .recording ? L("Stop Dictation & Insert") : L("Start Dictation"))
             + "  (\(settings.dictationHotkeyLabel))"
-        meetingItem.title = (meeting.state == .recording ? "Stop Meeting & Transcribe" : "Start Meeting Transcription")
+        meetingItem.title = (meeting.state == .recording ? L("Stop Meeting & Transcribe") : L("Start Meeting Transcription"))
             + "  (\(settings.meetingHotkeyLabel))"
         cancelItem.isHidden = dictation.state != .recording && meeting.state != .recording
 
@@ -203,7 +221,11 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
             if let submenu = item.submenu {
                 for subitem in submenu.items {
                     if let code = subitem.representedObject as? String {
-                        subitem.state = settings.language == code ? .on : .off
+                        if code.hasPrefix("appearance:") {
+                            subitem.state = settings.appearance == String(code.dropFirst("appearance:".count)) ? .on : .off
+                        } else {
+                            subitem.state = settings.language == code ? .on : .off
+                        }
                     }
                 }
             }
@@ -220,8 +242,15 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
         meeting.cancel()
     }
 
+    @objc private func selectAppearance(_ sender: NSMenuItem) {
+        if let raw = sender.representedObject as? String, raw.hasPrefix("appearance:") {
+            Appearance.set(String(raw.dropFirst("appearance:".count)))
+            refresh()
+        }
+    }
+
     @objc private func selectLanguage(_ sender: NSMenuItem) {
-        if let code = sender.representedObject as? String {
+        if let code = sender.representedObject as? String, !code.hasPrefix("appearance:") {
             SettingsStore.shared.language = code
             refresh()
         }

@@ -7,6 +7,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     private let meeting = MeetingController()
 
     public func applicationDidFinishLaunching(_ notification: Notification) {
+        Appearance.apply(SettingsStore.shared.appearance)
         statusController = StatusItemController(dictation: dictation, meeting: meeting)
         registerHotkeys()
         LLMCleaner.shared.reapStaleServer()

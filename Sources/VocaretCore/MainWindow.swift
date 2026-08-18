@@ -12,6 +12,13 @@ public final class MainWindowController: NSObject, NSWindowDelegate {
     public static let shared = MainWindowController()
 
     private var window: NSWindow?
+    private var languageObserver: NSObjectProtocol?
+
+    /// Swap the root view so every L() string re-resolves in the new language.
+    private func rebuildContent() {
+        guard let window else { return }
+        window.contentViewController = NSHostingController(rootView: MainView().environmentObject(AppModel.shared))
+    }
 
     public func show(section: MainSection? = nil) {
         if let section { AppModel.shared.selectedSection = section }
@@ -21,12 +28,21 @@ public final class MainWindowController: NSObject, NSWindowDelegate {
             window.title = "Vocaret"
             window.setContentSize(NSSize(width: 1040, height: 680))
             window.minSize = NSSize(width: 860, height: 540)
+            // One toolbar owned by the window → identical title-bar height on
+            // every tab. Without this, SwiftUI only creates a toolbar for tabs
+            // that declare toolbar items, so History/Meetings looked taller.
+            let toolbar = NSToolbar(identifier: "VocaretMainToolbar")
+            toolbar.displayMode = .iconOnly
+            window.toolbar = toolbar
             window.toolbarStyle = .unified
             window.center()
             window.setFrameAutosaveName("VocaretMainWindow")
             window.isReleasedWhenClosed = false
             window.delegate = self
             self.window = window
+            languageObserver = NotificationCenter.default.addObserver(forName: .vocaretUILanguageChanged, object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor in self?.rebuildContent() }
+            }
         }
         NSApp.setActivationPolicy(.regular)
         AppModel.shared.refreshStatus()
@@ -47,11 +63,11 @@ public enum MainSection: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .dashboard: return "Dashboard"
-        case .history: return "History"
-        case .meetings: return "Meetings"
-        case .coach: return "Coach"
-        case .settings: return "Settings"
+        case .dashboard: return L("Dashboard")
+        case .history: return L("History")
+        case .meetings: return L("Meetings")
+        case .coach: return L("Coach")
+        case .settings: return L("Settings")
         }
     }
 
@@ -98,9 +114,9 @@ struct StatusFooter: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            statusRow(ok: model.whisperReady, text: model.whisperReady ? "Whisper ready" : "Loading model…")
-            statusRow(ok: model.accessibilityGranted, text: model.accessibilityGranted ? "Accessibility granted" : "Accessibility missing")
-            statusRow(ok: model.llmAvailable, text: model.llmAvailable ? "Local LLM installed" : "LLM not set up")
+            statusRow(ok: model.whisperReady, text: model.whisperReady ? L("Whisper ready") : L("Loading model…"))
+            statusRow(ok: model.accessibilityGranted, text: model.accessibilityGranted ? L("Accessibility granted") : L("Accessibility missing"))
+            statusRow(ok: model.llmAvailable, text: model.llmAvailable ? L("Local LLM installed") : L("LLM not set up"))
         }
         .font(.caption)
         .foregroundStyle(.secondary)
@@ -134,7 +150,7 @@ struct DashboardView: View {
             }
             .padding(24)
         }
-        .navigationTitle("Dashboard")
+        .navigationTitle(L("Dashboard"))
     }
 
     private var header: some View {
@@ -150,18 +166,18 @@ struct DashboardView: View {
     private var greeting: String {
         let hour = Calendar.current.component(.hour, from: Date())
         switch hour {
-        case 5..<12: return "Good morning"
-        case 12..<18: return "Good afternoon"
-        default: return "Good evening"
+        case 5..<12: return L("Good morning")
+        case 12..<18: return L("Good afternoon")
+        default: return L("Good evening")
         }
     }
 
     private var heroCards: some View {
         LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 14), count: 4), spacing: 14) {
-            StatCard(title: "Words today", value: model.stats.wordsToday.formatted(), detail: "\(model.stats.wordsThisWeek.formatted()) this week", symbol: "text.word.spacing")
-            StatCard(title: "Speaking pace", value: model.stats.averageWPM > 0 ? "\(Int(model.stats.averageWPM))" : "—", detail: "words per minute", symbol: "gauge.with.dots.needle.33percent")
-            StatCard(title: "Time saved", value: Self.duration(model.stats.timeSavedSeconds), detail: "vs typing at \(Int(DashboardStats.typingWPM)) wpm", symbol: "hourglass")
-            StatCard(title: "Streak", value: "\(model.stats.streakDays)", detail: model.stats.streakDays == 1 ? "day" : "days in a row", symbol: "flame")
+            StatCard(title: L("Words today"), value: model.stats.wordsToday.formatted(), detail: "\(model.stats.wordsThisWeek.formatted()) this week", symbol: "text.word.spacing")
+            StatCard(title: L("Speaking pace"), value: model.stats.averageWPM > 0 ? "\(Int(model.stats.averageWPM))" : "—", detail: "words per minute", symbol: "gauge.with.dots.needle.33percent")
+            StatCard(title: L("Time saved"), value: Self.duration(model.stats.timeSavedSeconds), detail: "vs typing at \(Int(DashboardStats.typingWPM)) wpm", symbol: "hourglass")
+            StatCard(title: L("Streak"), value: "\(model.stats.streakDays)", detail: model.stats.streakDays == 1 ? L("day") : L("days in a row"), symbol: "flame")
         }
     }
 
@@ -203,9 +219,9 @@ struct DailyWordsCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Last 14 days").font(.headline)
+            Text(L("Last 14 days")).font(.headline)
             if days.allSatisfy({ $0.words == 0 }) {
-                Text("No dictated words in this period yet.").foregroundStyle(.secondary).frame(maxWidth: .infinity, minHeight: 160)
+                Text(L("No dictated words in this period yet.")).foregroundStyle(.secondary).frame(maxWidth: .infinity, minHeight: 160)
             } else {
                 Chart(days) { day in
                     BarMark(x: .value("Day", day.day, unit: .day), y: .value("Words", day.words))
@@ -231,12 +247,12 @@ struct PeakHoursCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text("Peak dictation hours").font(.headline)
+                Text(L("Peak dictation hours")).font(.headline)
                 Spacer()
                 if let peak { Text(String(format: "%02d:00", peak)).font(.caption).foregroundStyle(.secondary) }
             }
             if wordsByHour.allSatisfy({ $0 == 0 }) {
-                Text("Nothing yet.").foregroundStyle(.secondary).frame(maxWidth: .infinity, minHeight: 160)
+                Text(L("Nothing yet.")).foregroundStyle(.secondary).frame(maxWidth: .infinity, minHeight: 160)
             } else {
                 Chart(wordsByHour.enumerated().map { HourBucket(id: $0.offset, words: $0.element) }) { bucket in
                     BarMark(x: .value("Hour", bucket.id), y: .value("Words", bucket.words))
@@ -260,12 +276,12 @@ struct RecentTranscriptsCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text("Recent transcripts").font(.headline)
+                Text(L("Recent transcripts")).font(.headline)
                 Spacer()
-                Button("See all") { model.selectedSection = .history }.buttonStyle(.link)
+                Button(L("See all")) { model.selectedSection = .history }.buttonStyle(.link)
             }
             if records.isEmpty {
-                Text("Your dictations will appear here.").foregroundStyle(.secondary)
+                Text(L("Your dictations will appear here.")).foregroundStyle(.secondary)
             } else {
                 ForEach(records) { record in
                     HStack(alignment: .top, spacing: 12) {
@@ -274,7 +290,7 @@ struct RecentTranscriptsCard: View {
                         Text(record.text).lineLimit(2)
                         Spacer(minLength: 8)
                         Button { model.copy(record.text) } label: { Image(systemName: "doc.on.doc") }
-                            .buttonStyle(.borderless).help("Copy")
+                            .buttonStyle(.borderless).help(L("Copy"))
                     }
                     if record.id != records.last?.id { Divider() }
                 }
@@ -323,16 +339,16 @@ struct HistoryView: View {
                 if let record = filtered.first(where: { $0.id == selection }) {
                     TranscriptDetail(record: record)
                 } else {
-                    ContentUnavailableView("Select a dictation", systemImage: "text.quote", description: Text("\(model.records.count) transcripts on this Mac. Nothing here has left it."))
+                    ContentUnavailableView(L("Select a dictation"), systemImage: "text.quote", description: Text("\(model.records.count) transcripts on this Mac. Nothing here has left it."))
                 }
             }
             .frame(minWidth: 380, maxWidth: .infinity, maxHeight: .infinity)
         }
-        .searchable(text: $query, placement: .toolbar, prompt: "Search transcripts")
-        .navigationTitle("History")
+        .searchable(text: $query, placement: .toolbar, prompt: Text(L("Search transcripts")))
+        .navigationTitle(L("History"))
         .toolbar {
-            ToolbarItem { Button { model.copy(model.records.first?.text ?? "") } label: { Label("Copy last", systemImage: "doc.on.doc") }.disabled(model.records.isEmpty) }
-            ToolbarItem { Menu { Button("Clear all history…", role: .destructive) { model.clearHistory() } } label: { Image(systemName: "ellipsis.circle") } }
+            ToolbarItem { Button { model.copy(model.records.first?.text ?? "") } label: { Label(L("Copy last"), systemImage: "doc.on.doc") }.disabled(model.records.isEmpty) }
+            ToolbarItem { Menu { Button(L("Clear all history…"), role: .destructive) { model.clearHistory() } } label: { Image(systemName: "ellipsis.circle") } }
         }
     }
 }
@@ -367,10 +383,10 @@ struct TranscriptDetail: View {
                 Button {
                     model.copy(record.text); copied = true
                     DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) { copied = false }
-                } label: { Label(copied ? "Copied" : "Copy", systemImage: copied ? "checkmark" : "doc.on.doc") }
+                } label: { Label(copied ? L("Copied") : L("Copy"), systemImage: copied ? "checkmark" : "doc.on.doc") }
                 .keyboardShortcut("c", modifiers: [.command, .shift])
                 Spacer()
-                Button(role: .destructive) { model.delete(record) } label: { Label("Delete", systemImage: "trash") }
+                Button(role: .destructive) { model.delete(record) } label: { Label(L("Delete"), systemImage: "trash") }
             }
         }
         .padding(20)

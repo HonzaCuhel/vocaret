@@ -35,9 +35,9 @@ struct MeetingsView: View {
                         Button {
                             model.copy(text); copied = true
                             DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) { copied = false }
-                        } label: { Label(copied ? "Copied" : "Copy transcript", systemImage: copied ? "checkmark" : "doc.on.doc") }
-                        Button { model.reveal(meeting) } label: { Label("Show in Finder", systemImage: "folder") }
-                        Button { NSWorkspace.shared.open(meeting.url) } label: { Label("Open", systemImage: "arrow.up.forward.app") }
+                        } label: { Label(copied ? L("Copied") : L("Copy transcript"), systemImage: copied ? "checkmark" : "doc.on.doc") }
+                        Button { model.reveal(meeting) } label: { Label(L("Show in Finder"), systemImage: "folder") }
+                        Button { NSWorkspace.shared.open(meeting.url) } label: { Label(L("Open"), systemImage: "arrow.up.forward.app") }
                         Spacer()
                     }
                 }
@@ -54,10 +54,10 @@ struct MeetingsView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .navigationTitle("Meetings")
+        .navigationTitle(L("Meetings"))
         .toolbar {
-            ToolbarItem { Button { model.refreshMeetings() } label: { Label("Refresh", systemImage: "arrow.clockwise") } }
-            ToolbarItem { Button { NSWorkspace.shared.open(SettingsStore.shared.meetingsDir) } label: { Label("Open folder", systemImage: "folder") } }
+            ToolbarItem { Button { model.refreshMeetings() } label: { Label(L("Refresh"), systemImage: "arrow.clockwise") } }
+            ToolbarItem { Button { NSWorkspace.shared.open(SettingsStore.shared.meetingsDir) } label: { Label(L("Open folder"), systemImage: "folder") } }
         }
         .onAppear { model.refreshMeetings() }
     }
@@ -106,16 +106,16 @@ struct CoachView: View {
             VStack(alignment: .leading, spacing: 20) {
                 HStack(alignment: .firstTextBaseline) {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Speaking coach").font(.system(size: 26, weight: .semibold, design: .rounded))
-                        Text("Reads your last two weeks of dictation — on this Mac only — and tells you what to work on.")
+                        Text(L("Speaking coach")).font(.system(size: 26, weight: .semibold, design: .rounded))
+                        Text(L("Reads your last two weeks of dictation — on this Mac only — and tells you what to work on."))
                             .foregroundStyle(.secondary)
                     }
                     Spacer()
                     Button {
                         model.runCoach()
                     } label: {
-                        if model.coachRunning { ProgressView().controlSize(.small).padding(.trailing, 4); Text("Analyzing…") }
-                        else { Label(model.coachReport == nil ? "Analyze my speaking" : "Analyze again", systemImage: "sparkles") }
+                        if model.coachRunning { ProgressView().controlSize(.small).padding(.trailing, 4); Text(L("Analyzing…")) }
+                        else { Label(model.coachReport == nil ? L("Analyze my speaking") : L("Analyze again"), systemImage: "sparkles") }
                     }
                     .buttonStyle(.borderedProminent)
                     .disabled(model.coachRunning || model.records.isEmpty)
@@ -123,24 +123,24 @@ struct CoachView: View {
 
                 if let report = model.coachReport {
                     metrics(report)
-                    section("What I noticed") {
+                    section(L("What I noticed")) {
                         ForEach(Array(report.observations.enumerated()), id: \.offset) { _, line in
                             HStack(alignment: .top, spacing: 8) { Text("→").foregroundStyle(.tint); Text(line) }
                         }
                     }
                     if let advice = report.advice {
-                        section("Your coach says") {
+                        section(L("Your coach says")) {
                             Text(advice).lineSpacing(3).textSelection(.enabled)
                         }
                     } else {
-                        section("Your coach says") {
+                        section(L("Your coach says")) {
                             Text(model.llmAvailable
                                  ? "The local model was not reachable — the measurements and reading list above still apply. Try again in a moment."
                                  : "Personal advice needs the local LLM. Run `scripts/setup_llm.sh` once (installs llama.cpp and a 2.4 GB model); everything stays on this Mac.")
                             .foregroundStyle(.secondary)
                         }
                     }
-                    section("Worth reading") {
+                    section(L("Worth reading")) {
                         Text(report.books.contains { $0.pickedBecause != nil }
                              ? "Picked for you from a curated list, based on the measurements above."
                              : "General picks — nothing in the measurements stood out yet. Dictate more and the list adapts.")
@@ -174,25 +174,25 @@ struct CoachView: View {
                     Text("Based on \(report.sampleSize) dictations · \(report.wordsAnalyzed) words · \(report.generatedAt.formatted(date: .abbreviated, time: .shortened))")
                         .font(.caption).foregroundStyle(.tertiary)
                 } else if model.records.isEmpty {
-                    ContentUnavailableView("Nothing to coach yet", systemImage: "graduationcap", description: Text("Dictate for a day or two, then come back."))
+                    ContentUnavailableView(L("Nothing to coach yet"), systemImage: "graduationcap", description: Text(L("Dictate for a day or two, then come back.")))
                         .frame(maxWidth: .infinity, minHeight: 240)
                 } else {
-                    Text("Press *Analyze my speaking*. Measurements are computed locally; the personal note comes from the local LLM if it is set up.")
+                    Text(L("Press *Analyze my speaking*. Measurements are computed locally; the personal note comes from the local LLM if it is set up."))
                         .foregroundStyle(.secondary)
                 }
             }
             .padding(24)
         }
-        .navigationTitle("Coach")
+        .navigationTitle(L("Coach"))
     }
 
     private func metrics(_ report: CoachReport) -> some View {
         LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 14), count: 4), spacing: 14) {
-            StatCard(title: "Filler words", value: String(format: "%.1f%%", report.fillerRate),
+            StatCard(title: L("Filler words"), value: String(format: "%.1f%%", report.fillerRate),
                      detail: report.topFillers.prefix(3).joined(separator: ", ").isEmpty ? "of all words" : report.topFillers.prefix(3).joined(separator: ", "), symbol: "ellipsis.bubble")
-            StatCard(title: "Sentence length", value: String(format: "%.0f", report.averageSentenceLength), detail: "words on average", symbol: "text.alignleft")
-            StatCard(title: "Vocabulary", value: String(format: "%.0f%%", report.vocabularyRichness * 100), detail: "unique words", symbol: "character.book.closed")
-            StatCard(title: "Pace", value: report.averageWPM > 0 ? "\(Int(report.averageWPM))" : "—", detail: "words per minute", symbol: "gauge.with.dots.needle.50percent")
+            StatCard(title: L("Sentence length"), value: String(format: "%.0f", report.averageSentenceLength), detail: "words on average", symbol: "text.alignleft")
+            StatCard(title: L("Vocabulary"), value: String(format: "%.0f%%", report.vocabularyRichness * 100), detail: "unique words", symbol: "character.book.closed")
+            StatCard(title: L("Pace"), value: report.averageWPM > 0 ? "\(Int(report.averageWPM))" : "—", detail: "words per minute", symbol: "gauge.with.dots.needle.50percent")
         }
     }
 
@@ -219,76 +219,95 @@ struct SettingsView: View {
 
     var body: some View {
         Form {
-            Section("Shortcuts") {
-                hotkeyRow("Dictation", label: settings.dictationLabel, target: .dictation)
-                hotkeyRow("Meeting", label: settings.meetingLabel, target: .meeting)
-                Toggle("Hold to talk (release inserts); a quick tap toggles", isOn: $settings.pushToTalk)
-                Text("Changes to shortcuts apply after you restart Vocaret.").font(.caption).foregroundStyle(.secondary)
+            Section(L("Shortcuts")) {
+                hotkeyRow(L("Dictation"), label: settings.dictationLabel, target: .dictation)
+                hotkeyRow(L("Meeting"), label: settings.meetingLabel, target: .meeting)
+                Toggle(L("Hold to talk (release inserts); a quick tap toggles"), isOn: $settings.pushToTalk)
+                Text(L("Changes to shortcuts apply after you restart Vocaret.")).font(.caption).foregroundStyle(.secondary)
             }
-            Section("Language") {
-                Picker("Transcribe", selection: $settings.language) {
-                    Text("Auto-detect").tag("auto"); Text("Čeština").tag("cs"); Text("English").tag("en")
+            Section(L("Language")) {
+                Picker(L("Transcribe"), selection: $settings.language) {
+                    Text(L("Auto-detect")).tag("auto"); Text("Čeština").tag("cs"); Text("English").tag("en")
                 }
                 if settings.language == "auto" {
-                    Text("Auto-detect chooses between: \(settings.autoLanguages.joined(separator: ", ")). Edit with `defaults write com.jancuhel.vocaret autoLanguages -array cs en de`.")
-                        .font(.caption).foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(L("Auto-detect chooses between:")).font(.caption).foregroundStyle(.secondary)
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 130), alignment: .leading)], alignment: .leading, spacing: 4) {
+                            ForEach(L10n.detectableLanguages, id: \.code) { lang in
+                                Toggle(lang.name, isOn: Binding(
+                                    get: { settings.autoLanguages.contains(lang.code) },
+                                    set: { on in
+                                        var set = settings.autoLanguages
+                                        if on { if !set.contains(lang.code) { set.append(lang.code) } } else { set.removeAll { $0 == lang.code } }
+                                        settings.autoLanguages = set
+                                    }
+                                )).toggleStyle(.checkbox)
+                            }
+                        }
+                    }
                 }
-                Picker("Speech model", selection: $settings.whisperModel) {
+                Picker(L("Speech model"), selection: $settings.whisperModel) {
                     Text("Large v3 turbo — best for Czech (1.6 GB)").tag("openai_whisper-large-v3-v20240930")
                     Text("Large v3 turbo, compressed (626 MB)").tag("openai_whisper-large-v3-v20240930_626MB")
                     Text("Large v3 — slowest, most accurate (3 GB)").tag("openai_whisper-large-v3")
                 }
-                Text("A new model downloads on next launch. Smaller models are much worse at Czech.").font(.caption).foregroundStyle(.secondary)
+                Text(L("A new model downloads on next launch. Smaller models are much worse at Czech.")).font(.caption).foregroundStyle(.secondary)
+                Picker(L("Interface language"), selection: $settings.uiLanguage) {
+                    Text(L("System")).tag("system"); Text("English").tag("en"); Text("Čeština").tag("cs")
+                }
+                Picker(L("Appearance"), selection: $settings.appearance) {
+                    ForEach(Appearance.options, id: \.id) { option in Text(L(option.title)).tag(option.id) }
+                }
             }
-            Section("AI cleanup (local LLM)") {
-                Toggle("Clean dictation with AI (adds ~1–2 s)", isOn: $settings.cleanDictation)
-                Toggle("Structure meeting notes with AI", isOn: $settings.cleanMeetings)
+            Section(L("AI cleanup (local LLM)")) {
+                Toggle(L("Clean dictation with AI (adds ~1–2 s)"), isOn: $settings.cleanDictation)
+                Toggle(L("Structure meeting notes with AI"), isOn: $settings.cleanMeetings)
                 HStack {
                     Circle().fill(model.llmAvailable ? Color.green : Color.orange).frame(width: 8, height: 8)
-                    Text(model.llmAvailable ? "llama-server installed" : "Not installed — run scripts/setup_llm.sh in the project folder")
+                    Text(model.llmAvailable ? L("llama-server installed") : L("Not installed — run scripts/setup_llm.sh in the project folder"))
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }
-            Section("Vocabulary") {
-                Text("One term per line. Vocaret always spells these your way, and the AI cleanup is told about them.").font(.caption).foregroundStyle(.secondary)
+            Section(L("Vocabulary")) {
+                Text(L("One term per line. Vocaret always spells these your way, and the AI cleanup is told about them.")).font(.caption).foregroundStyle(.secondary)
                 TextEditor(text: $vocabularyText)
                     .font(.system(.body, design: .monospaced))
                     .frame(minHeight: 110)
                 HStack {
-                    Button("Save vocabulary") {
+                    Button(L("Save vocabulary")) {
                         Vocabulary.shared.terms = vocabularyText.components(separatedBy: "\n").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
                         Vocabulary.shared.save()
                     }
                     Text("\(Vocabulary.shared.learnedCorrections.count) corrections learned automatically").font(.caption).foregroundStyle(.secondary)
                 }
             }
-            Section("Behaviour") {
-                Toggle("Show the recording overlay", isOn: $settings.showHUD)
-                Toggle("Pause Spotify / Music while recording, resume after", isOn: $settings.pauseMedia)
-                Toggle("Keep a history of dictations on this Mac", isOn: $settings.keepDictationHistory)
-                Toggle("Keep raw meeting audio after transcribing", isOn: $settings.keepRecordings)
-                Toggle("Keep the speech model loaded (faster, ~800 MB RAM)", isOn: $settings.keepModelLoaded)
-                Toggle("Start Vocaret at login", isOn: $settings.startAtLogin)
+            Section(L("Behaviour")) {
+                Toggle(L("Show the recording overlay"), isOn: $settings.showHUD)
+                Toggle(L("Pause Spotify / Music while recording, resume after"), isOn: $settings.pauseMedia)
+                Toggle(L("Keep a history of dictations on this Mac"), isOn: $settings.keepDictationHistory)
+                Toggle(L("Keep raw meeting audio after transcribing"), isOn: $settings.keepRecordings)
+                Toggle(L("Keep the speech model loaded (faster, ~800 MB RAM)"), isOn: $settings.keepModelLoaded)
+                Toggle(L("Start Vocaret at login"), isOn: $settings.startAtLogin)
             }
-            Section("Permissions") {
+            Section(L("Permissions")) {
                 HStack {
                     Circle().fill(model.accessibilityGranted ? Color.green : Color.orange).frame(width: 8, height: 8)
-                    Text(model.accessibilityGranted ? "Accessibility granted — text is typed at your cursor" : "Accessibility missing — transcripts go to the clipboard")
+                    Text(model.accessibilityGranted ? L("Accessibility granted — text is typed at your cursor") : L("Accessibility missing — transcripts go to the clipboard"))
                     Spacer()
-                    if !model.accessibilityGranted { Button("Fix…") { _ = Permissions.accessibilityGranted(promptIfNeeded: true); Permissions.openAccessibilitySettings() } }
+                    if !model.accessibilityGranted { Button(L("Fix…")) { _ = Permissions.accessibilityGranted(promptIfNeeded: true); Permissions.openAccessibilitySettings() } }
                 }
-                Button("Open Microphone settings") { Permissions.openMicrophoneSettings() }
-                Button("Open System Audio Recording settings") { Permissions.openAudioCaptureSettings() }
+                Button(L("Open Microphone settings")) { Permissions.openMicrophoneSettings() }
+                Button(L("Open System Audio Recording settings")) { Permissions.openAudioCaptureSettings() }
             }
-            Section("Data") {
-                LabeledContent("Dictation history", value: TranscriptHistory.shared.fileURL.path)
-                LabeledContent("Meeting transcripts", value: SettingsStore.shared.meetingsDir.path)
-                LabeledContent("Models", value: SettingsStore.shared.modelsDir.path)
-                Text("Nothing here ever leaves this Mac. See PRIVACY.md for the exact details.").font(.caption).foregroundStyle(.secondary)
+            Section(L("Data")) {
+                LabeledContent(L("Dictation history"), value: TranscriptHistory.shared.fileURL.path)
+                LabeledContent(L("Meeting transcripts"), value: SettingsStore.shared.meetingsDir.path)
+                LabeledContent(L("Models"), value: SettingsStore.shared.modelsDir.path)
+                Text(L("Nothing here ever leaves this Mac. See PRIVACY.md for the exact details.")).font(.caption).foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
-        .navigationTitle("Settings")
+        .navigationTitle(L("Settings"))
         .onAppear {
             settings = SettingsSnapshot()
             vocabularyText = Vocabulary.shared.terms.joined(separator: "\n")
@@ -309,15 +328,19 @@ struct SettingsView: View {
         HStack {
             Text(title)
             Spacer()
-            Text(recordingHotkey == target ? "Press a shortcut…" : label)
+            Text(recordingHotkey == target ? L("Press a shortcut…") : label)
                 .font(.system(.body, design: .monospaced))
                 .padding(.horizontal, 10).padding(.vertical, 4)
                 .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
-            Button(recordingHotkey == target ? "Cancel" : "Change") {
+            Button(recordingHotkey == target ? L("Cancel") : L("Change")) {
                 recordingHotkey = recordingHotkey == target ? nil : target
             }
         }
     }
+}
+
+public extension Notification.Name {
+    static let vocaretUILanguageChanged = Notification.Name("VocaretUILanguageChanged")
 }
 
 /// Mirror of SettingsStore so SwiftUI bindings work with plain @State.
@@ -328,6 +351,8 @@ struct SettingsSnapshot: Equatable {
     var pushToTalk = SettingsStore.shared.pushToTalk
     var showHUD = SettingsStore.shared.showHUD
     var pauseMedia = SettingsStore.shared.pauseMediaWhileRecording
+    var appearance = SettingsStore.shared.appearance
+    var uiLanguage = SettingsStore.shared.uiLanguage
     var cleanDictation = SettingsStore.shared.cleanDictation
     var cleanMeetings = SettingsStore.shared.cleanMeetings
     var keepRecordings = SettingsStore.shared.keepRecordings
@@ -342,15 +367,20 @@ struct SettingsSnapshot: Equatable {
     var dictationLabel: String { HotkeyManager.describe(keyCode: dictationKeyCode, modifiers: dictationModifiers) }
     var meetingLabel: String { HotkeyManager.describe(keyCode: meetingKeyCode, modifiers: meetingModifiers) }
 
+    @MainActor
     func apply() {
         let s = SettingsStore.shared
-        s.language = language; s.whisperModel = whisperModel; s.pushToTalk = pushToTalk; s.showHUD = showHUD
+        let languageChanged = s.uiLanguage != uiLanguage
+        s.language = language; s.autoLanguages = autoLanguages; s.whisperModel = whisperModel; s.pushToTalk = pushToTalk; s.showHUD = showHUD
+        s.uiLanguage = uiLanguage
+        if s.appearance != appearance { Appearance.set(appearance) }
         s.pauseMediaWhileRecording = pauseMedia
         s.cleanDictation = cleanDictation; s.cleanMeetings = cleanMeetings; s.keepRecordings = keepRecordings
         s.keepDictationHistory = keepDictationHistory; s.keepModelLoaded = keepModelLoaded
         s.dictationKeyCode = dictationKeyCode; s.dictationModifiers = dictationModifiers
         s.meetingKeyCode = meetingKeyCode; s.meetingModifiers = meetingModifiers
         if startAtLogin != LoginItem.isEnabled { LoginItem.setEnabled(startAtLogin) }
+        if languageChanged { NotificationCenter.default.post(name: .vocaretUILanguageChanged, object: nil) }
     }
 }
 
