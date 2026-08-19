@@ -213,6 +213,7 @@ struct SettingsView: View {
     @EnvironmentObject var model: AppModel
     @State private var settings = SettingsSnapshot()
     @State private var recordingHotkey: HotkeyTarget?
+    @State private var hotkeyProblem: String?
     @State private var vocabularyText = ""
 
     enum HotkeyTarget { case dictation, meeting }
@@ -222,12 +223,20 @@ struct SettingsView: View {
             Section(L("Shortcuts")) {
                 hotkeyRow(L("Dictation"), label: settings.dictationLabel, target: .dictation)
                 hotkeyRow(L("Meeting"), label: settings.meetingLabel, target: .meeting)
+                if let hotkeyProblem {
+                    Text(hotkeyProblem).font(.caption).foregroundStyle(.orange)
+                }
                 Toggle(L("Hold to talk (release inserts); a quick tap toggles"), isOn: $settings.pushToTalk)
                 Text(L("Changes to shortcuts apply after you restart Vocaret.")).font(.caption).foregroundStyle(.secondary)
             }
             Section(L("Language")) {
                 Picker(L("Transcribe"), selection: $settings.language) {
                     Text(L("Auto-detect")).tag("auto"); Text("Čeština").tag("cs"); Text("English").tag("en")
+                    // A value set via `defaults write` that is not in the list
+                    // would otherwise render as an empty pop-up.
+                    if !["auto", "cs", "en"].contains(settings.language) {
+                        Text(L("Custom: ") + settings.language).tag(settings.language)
+                    }
                 }
                 if settings.language == "auto" {
                     VStack(alignment: .leading, spacing: 6) {
@@ -246,10 +255,21 @@ struct SettingsView: View {
                         }
                     }
                 }
+                Picker(L("Speech engine"), selection: $settings.asrEngine) {
+                    Text("Whisper large-v3-turbo — best for Czech, mixed languages").tag("whisper")
+                    Text("Parakeet TDT v3 — faster, experimental").tag("parakeet")
+                }
+                if settings.asrEngine == "parakeet" {
+                    Text(L("Parakeet has no language control: it can drift to English on short or unclear Czech. Try it, compare, switch back if it misbehaves. Downloads ~500 MB on first use."))
+                        .font(.caption).foregroundStyle(.secondary)
+                }
                 Picker(L("Speech model"), selection: $settings.whisperModel) {
                     Text("Large v3 turbo — best for Czech (1.6 GB)").tag("openai_whisper-large-v3-v20240930")
                     Text("Large v3 turbo, compressed (626 MB)").tag("openai_whisper-large-v3-v20240930_626MB")
                     Text("Large v3 — slowest, most accurate (3 GB)").tag("openai_whisper-large-v3")
+                    if !Self.knownWhisperModels.contains(settings.whisperModel) {
+                        Text(L("Custom: ") + settings.whisperModel).tag(settings.whisperModel)
+                    }
                 }
                 Text(L("A new model downloads on next launch. Smaller models are much worse at Czech.")).font(.caption).foregroundStyle(.secondary)
                 Picker(L("Interface language"), selection: $settings.uiLanguage) {
@@ -288,6 +308,15 @@ struct SettingsView: View {
                 Toggle(L("Keep raw meeting audio after transcribing"), isOn: $settings.keepRecordings)
                 Toggle(L("Keep the speech model loaded (faster, ~800 MB RAM)"), isOn: $settings.keepModelLoaded)
                 Toggle(L("Start Vocaret at login"), isOn: $settings.startAtLogin)
+                    .disabled(!LoginItem.isBundled)
+                if !LoginItem.isBundled {
+                    Text(L("Available when running the built Vocaret.app (scripts/build_app.sh).")).font(.caption).foregroundStyle(.secondary)
+                } else if LoginItem.needsApproval {
+                    HStack {
+                        Text(L("macOS is waiting for your approval in System Settings → General → Login Items.")).font(.caption).foregroundStyle(.orange)
+                        Button(L("Open…")) { LoginItem.openSystemSettings() }.controlSize(.small)
+                    }
+                }
             }
             Section(L("Permissions")) {
                 HStack {
@@ -313,16 +342,32 @@ struct SettingsView: View {
             vocabularyText = Vocabulary.shared.terms.joined(separator: "\n")
             model.refreshStatus()
         }
-        .onChange(of: settings) { _, new in new.apply() }
+        .onChange(of: settings) { old, new in new.apply(changedFrom: old) }
+        .onDisappear { recordingHotkey = nil }
         .background(HotkeyRecorder(target: $recordingHotkey) { keyCode, modifiers in
+            let label = HotkeyManager.describe(keyCode: keyCode, modifiers: modifiers)
             switch recordingHotkey {
-            case .dictation: settings.dictationKeyCode = keyCode; settings.dictationModifiers = modifiers
-            case .meeting: settings.meetingKeyCode = keyCode; settings.meetingModifiers = modifiers
+            case .dictation:
+                if keyCode == settings.meetingKeyCode, modifiers == settings.meetingModifiers {
+                    hotkeyProblem = "“\(label)” " + L("is already the meeting shortcut — choose a different one.")
+                } else {
+                    settings.dictationKeyCode = keyCode; settings.dictationModifiers = modifiers; hotkeyProblem = nil
+                }
+            case .meeting:
+                if keyCode == settings.dictationKeyCode, modifiers == settings.dictationModifiers {
+                    hotkeyProblem = "“\(label)” " + L("is already the dictation shortcut — choose a different one.")
+                } else {
+                    settings.meetingKeyCode = keyCode; settings.meetingModifiers = modifiers; hotkeyProblem = nil
+                }
             case nil: break
             }
             recordingHotkey = nil
         })
     }
+
+    static let knownWhisperModels = [
+        "openai_whisper-large-v3-v20240930", "openai_whisper-large-v3-v20240930_626MB", "openai_whisper-large-v3",
+    ]
 
     private func hotkeyRow(_ title: String, label: String, target: HotkeyTarget) -> some View {
         HStack {
@@ -334,6 +379,7 @@ struct SettingsView: View {
                 .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
             Button(recordingHotkey == target ? L("Cancel") : L("Change")) {
                 recordingHotkey = recordingHotkey == target ? nil : target
+                hotkeyProblem = nil
             }
         }
     }
@@ -352,6 +398,7 @@ struct SettingsSnapshot: Equatable {
     var showHUD = SettingsStore.shared.showHUD
     var pauseMedia = SettingsStore.shared.pauseMediaWhileRecording
     var appearance = SettingsStore.shared.appearance
+    var asrEngine = SettingsStore.shared.asrEngine
     var uiLanguage = SettingsStore.shared.uiLanguage
     var cleanDictation = SettingsStore.shared.cleanDictation
     var cleanMeetings = SettingsStore.shared.cleanMeetings
@@ -367,25 +414,41 @@ struct SettingsSnapshot: Equatable {
     var dictationLabel: String { HotkeyManager.describe(keyCode: dictationKeyCode, modifiers: dictationModifiers) }
     var meetingLabel: String { HotkeyManager.describe(keyCode: meetingKeyCode, modifiers: meetingModifiers) }
 
+    /// Write only what the user changed in the form. Writing the whole snapshot
+    /// would revert anything toggled elsewhere (menu bar, `defaults`) while the
+    /// Settings tab was open — including the appearance and the login item.
     @MainActor
-    func apply() {
+    func apply(changedFrom old: SettingsSnapshot) {
         let s = SettingsStore.shared
-        let languageChanged = s.uiLanguage != uiLanguage
-        s.language = language; s.autoLanguages = autoLanguages; s.whisperModel = whisperModel; s.pushToTalk = pushToTalk; s.showHUD = showHUD
-        s.uiLanguage = uiLanguage
-        if s.appearance != appearance { Appearance.set(appearance) }
-        s.pauseMediaWhileRecording = pauseMedia
-        s.cleanDictation = cleanDictation; s.cleanMeetings = cleanMeetings; s.keepRecordings = keepRecordings
-        s.keepDictationHistory = keepDictationHistory; s.keepModelLoaded = keepModelLoaded
-        s.dictationKeyCode = dictationKeyCode; s.dictationModifiers = dictationModifiers
-        s.meetingKeyCode = meetingKeyCode; s.meetingModifiers = meetingModifiers
-        if startAtLogin != LoginItem.isEnabled { LoginItem.setEnabled(startAtLogin) }
-        if languageChanged { NotificationCenter.default.post(name: .vocaretUILanguageChanged, object: nil) }
+        if language != old.language { s.language = language }
+        if autoLanguages != old.autoLanguages { s.autoLanguages = autoLanguages }
+        if whisperModel != old.whisperModel { s.whisperModel = whisperModel }
+        if asrEngine != old.asrEngine { s.asrEngine = asrEngine }
+        if pushToTalk != old.pushToTalk { s.pushToTalk = pushToTalk }
+        if showHUD != old.showHUD { s.showHUD = showHUD }
+        if appearance != old.appearance { Appearance.set(appearance) }
+        if pauseMedia != old.pauseMedia { s.pauseMediaWhileRecording = pauseMedia }
+        if cleanDictation != old.cleanDictation { s.cleanDictation = cleanDictation }
+        if cleanMeetings != old.cleanMeetings { s.cleanMeetings = cleanMeetings }
+        if keepRecordings != old.keepRecordings { s.keepRecordings = keepRecordings }
+        if keepDictationHistory != old.keepDictationHistory { s.keepDictationHistory = keepDictationHistory }
+        if keepModelLoaded != old.keepModelLoaded { s.keepModelLoaded = keepModelLoaded }
+        if dictationKeyCode != old.dictationKeyCode || dictationModifiers != old.dictationModifiers {
+            s.dictationKeyCode = dictationKeyCode; s.dictationModifiers = dictationModifiers
+        }
+        if meetingKeyCode != old.meetingKeyCode || meetingModifiers != old.meetingModifiers {
+            s.meetingKeyCode = meetingKeyCode; s.meetingModifiers = meetingModifiers
+        }
+        if startAtLogin != old.startAtLogin { LoginItem.setEnabled(startAtLogin) }
+        if uiLanguage != old.uiLanguage {
+            s.uiLanguage = uiLanguage
+            NotificationCenter.default.post(name: .vocaretUILanguageChanged, object: nil)
+        }
     }
 }
 
 /// Invisible view that, while a target is set, captures the next key chord
-/// (with at least one modifier) and reports Carbon keyCode + modifier mask.
+/// (with ⌘, ⌃ or ⌥) and reports Carbon keyCode + modifier mask. Esc cancels.
 struct HotkeyRecorder: NSViewRepresentable {
     @Binding var target: SettingsView.HotkeyTarget?
     let onCapture: (UInt32, UInt32) -> Void
@@ -394,21 +457,35 @@ struct HotkeyRecorder: NSViewRepresentable {
     func makeNSView(context: Context) -> NSView { NSView() }
     func updateNSView(_ nsView: NSView, context: Context) {
         if target != nil, context.coordinator.monitor == nil {
+            let cancel = { DispatchQueue.main.async { target = nil } }
             context.coordinator.monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+                if event.keyCode == 53 { cancel(); return nil } // Esc
                 let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
                 var carbon: UInt32 = 0
                 if flags.contains(.command) { carbon |= 0x100 }
                 if flags.contains(.shift) { carbon |= 0x200 }
                 if flags.contains(.option) { carbon |= 0x800 }
                 if flags.contains(.control) { carbon |= 0x1000 }
-                guard carbon != 0, event.keyCode != 53 else { return event } // need a modifier; Esc cancels
+                // Shift alone would make e.g. ⇧A a global hotkey that swallows
+                // ordinary typing system-wide — require a real modifier.
+                guard carbon & (0x100 | 0x800 | 0x1000) != 0 else { return event }
                 DispatchQueue.main.async { onCapture(UInt32(event.keyCode), carbon) }
                 return nil
             }
-        } else if target == nil, let monitor = context.coordinator.monitor {
-            NSEvent.removeMonitor(monitor)
-            context.coordinator.monitor = nil
+        } else if target == nil {
+            context.coordinator.removeMonitor()
         }
     }
-    final class Coordinator { var monitor: Any? }
+    // Without this, leaving Settings mid-recording leaks a monitor that
+    // swallows every ⌘/⌥/⌃ keystroke in the window until relaunch.
+    static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) { coordinator.removeMonitor() }
+
+    final class Coordinator {
+        var monitor: Any?
+        func removeMonitor() {
+            if let monitor { NSEvent.removeMonitor(monitor) }
+            monitor = nil
+        }
+        deinit { removeMonitor() }
+    }
 }

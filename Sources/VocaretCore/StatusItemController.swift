@@ -38,6 +38,14 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
     // MARK: - Menu construction
 
     private func buildMenu() -> NSMenu {
+        // The long-lived items below are reused across rebuilds (interface
+        // language change). AppKit throws if an item is added while it still
+        // belongs to the previous menu — and an exception thrown from a
+        // MainActor task wedges the main dispatch queue for good.
+        for item in [stateItem, accessibilityWarningItem, dictationItem, meetingItem, cancelItem, copyLastItem] {
+            item.menu?.removeItem(item)
+        }
+
         let menu = NSMenu()
         menu.delegate = self
 
@@ -97,7 +105,7 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
         appearanceItem.submenu = appearanceMenu
         menu.addItem(appearanceItem)
 
-        menu.addItem(makeToggle(title: "Hold Hotkey to Talk (release inserts)", action: #selector(togglePushToTalk)))
+        menu.addItem(makeToggle(title: L("Hold Hotkey to Talk (release inserts)"), action: #selector(togglePushToTalk)))
         menu.addItem(makeToggle(title: L("Show Recording Overlay"), action: #selector(toggleShowHUD)))
         menu.addItem(makeToggle(title: L("Pause Music While Recording"), action: #selector(togglePauseMedia)))
         menu.addItem(makeToggle(title: L("Clean Dictation with AI"), action: #selector(toggleCleanDictation)))

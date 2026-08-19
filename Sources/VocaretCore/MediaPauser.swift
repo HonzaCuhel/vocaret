@@ -42,9 +42,39 @@ public final class MediaPauser: @unchecked Sendable {
     public func primePermissions() {
         guard SettingsStore.shared.pauseMediaWhileRecording else { return }
         let players = runningPlayers()
-        guard !players.isEmpty else { return }
-        queue.async { [self] in for p in players { _ = playerState(p) } }
+        if !players.isEmpty {
+            queue.async { [self] in for p in players { _ = playerState(p) } }
+        }
+        // A player launched later gets its prompt at launch time, not at the
+        // next recording.
+        if launchObserver == nil {
+            launchObserver = NSWorkspace.shared.notificationCenter.addObserver(
+                forName: NSWorkspace.didLaunchApplicationNotification, object: nil, queue: nil
+            ) { [weak self] note in
+                guard let self, SettingsStore.shared.pauseMediaWhileRecording,
+                      let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
+                      let player = Self.knownPlayers.first(where: { $0.bundleID == app.bundleIdentifier }) else { return }
+                // The app needs a moment before it answers Apple Events.
+                self.queue.asyncAfter(deadline: .now() + 4) {
+                    if self.automationStatus(player) == OSStatus(errAEEventWouldRequireUserConsent) { _ = self.playerState(player) }
+                }
+            }
+        }
     }
+    private var launchObserver: NSObjectProtocol?
+
+    /// noErr = granted, errAEEventWouldRequireUserConsent = macOS has not asked
+    /// yet, errAEEventNotPermitted = denied.
+    func automationStatus(_ player: Player) -> OSStatus {
+        guard let target = NSAppleEventDescriptor(bundleIdentifier: player.bundleID).aeDesc else { return -1 }
+        var address = target.pointee
+        return AEDeterminePermissionToAutomateTarget(&address, typeWildCard, typeWildCard, false)
+    }
+
+    /// Players the user has not been asked about yet: skipped mid-recording
+    /// (the modal permission prompt would steal focus from the recording and
+    /// from the app the text is meant for) and asked about afterwards.
+    private var primeAfterRecording: [Player] = []
 
     /// Pause every running player that is currently playing. Non-blocking.
     public func pauseIfPlaying(completion: (([Player]) -> Void)? = nil) {
@@ -53,7 +83,16 @@ public final class MediaPauser: @unchecked Sendable {
         guard !players.isEmpty else { completion?([]); return }
         queue.async { [self] in
             var paused: [Player] = []
-            for player in players where playerState(player) == "playing" {
+            var ready: [Player] = []
+            for player in players {
+                if automationStatus(player) == OSStatus(errAEEventWouldRequireUserConsent) {
+                    Log.info("Automation for \(player.name) not decided yet — not pausing it mid-recording; will ask afterwards")
+                    primeAfterRecording.append(player)
+                } else {
+                    ready.append(player)
+                }
+            }
+            for player in ready where playerState(player) == "playing" {
                 if run("tell application \"\(player.name)\" to pause") != nil { paused.append(player) }
             }
             pausedByUs = paused
@@ -67,6 +106,13 @@ public final class MediaPauser: @unchecked Sendable {
         queue.async { [self] in
             let resumed = resumeNow()
             completion?(resumed)
+            // Recording is over; give the transcript a few seconds to land in
+            // the target app, then ask (the one-time prompt steals focus).
+            let pending = primeAfterRecording
+            primeAfterRecording.removeAll()
+            if !pending.isEmpty {
+                queue.asyncAfter(deadline: .now() + 6) { [self] in for player in pending { _ = playerState(player) } }
+            }
         }
     }
 

@@ -13,6 +13,15 @@ public enum LoginItem {
         return SMAppService.mainApp.status == .enabled
     }
 
+    /// Registered, but macOS wants the user to confirm in System Settings.
+    public static var needsApproval: Bool {
+        isBundled && SMAppService.mainApp.status == .requiresApproval
+    }
+
+    public static func openSystemSettings() {
+        SMAppService.openSystemSettingsLoginItems()
+    }
+
     /// Returns the new state (unchanged on failure).
     @discardableResult
     public static func setEnabled(_ enabled: Bool) -> Bool {

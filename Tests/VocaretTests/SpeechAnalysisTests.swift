@@ -20,6 +20,26 @@ final class SpeechAnalysisTests: XCTestCase {
         XCTAssertEqual(a.vocabularyRichness, 0.5, accuracy: 0.001)
     }
 
+    func testOrdinalsAbbreviationsAndDecimalsDoNotEndSentences() {
+        // Czech ordinals ("18. srpna", "9. patře"), abbreviations ("např.") and
+        // version numbers must not be counted as sentence ends.
+        let a = SpeechAnalysis.analyze(texts: ["Sejdeme se 18. srpna v 9. patře, verze 2.5, např. ta nová. Pak jdeme domů."])
+        // Two sentences: 13 tokens + 3 tokens ("2.5" counts as two tokens).
+        XCTAssertEqual(a.averageSentenceLength, 8.0, accuracy: 0.01)
+        XCTAssertEqual(a.longestSentenceWords, 13)
+    }
+
+    func testVocabularyRichnessDoesNotFallWithCorpusSize() {
+        // The same 50-word vocabulary dictated 2× vs 40× must score the same:
+        // raw type/token ratio would halve and then collapse, punishing heavy users.
+        let vocab = (1...50).map { "slovo\($0)" }
+        let text = vocab.joined(separator: " ") + "."
+        let small = SpeechAnalysis.analyze(texts: Array(repeating: text, count: 2))
+        let large = SpeechAnalysis.analyze(texts: Array(repeating: text, count: 40))
+        XCTAssertEqual(small.vocabularyRichness, large.vocabularyRichness, accuracy: 0.02)
+        XCTAssertGreaterThan(large.vocabularyRichness, 0.4)
+    }
+
     func testEmptyInput() {
         let a = SpeechAnalysis.analyze(texts: [])
         XCTAssertEqual(a.fillerCount, 0)

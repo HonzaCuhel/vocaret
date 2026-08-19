@@ -62,7 +62,8 @@ public enum L10n {
         "Changes to shortcuts apply after you restart Vocaret.": "Změny zkratek se projeví po restartu Vocaretu.",
         "Language": "Jazyk", "Transcribe": "Přepisovat", "Auto-detect": "Automaticky",
         "Auto-detect chooses between:": "Automatická detekce vybírá mezi:",
-        "Speech model": "Model řeči",
+        "Speech model": "Model řeči", "Speech engine": "Rozpoznávač řeči",
+        "Parakeet has no language control: it can drift to English on short or unclear Czech. Try it, compare, switch back if it misbehaves. Downloads ~500 MB on first use.": "Parakeet nemá řízení jazyka: u krátké nebo nezřetelné češtiny může sklouznout do angličtiny. Vyzkoušej, porovnej, případně přepni zpět. Při prvním použití stáhne ~500 MB.",
         "A new model downloads on next launch. Smaller models are much worse at Czech.": "Nový model se stáhne při příštím spuštění. Menší modely jsou v češtině výrazně horší.",
         "AI cleanup (local LLM)": "AI úprava (lokální LLM)", "Clean dictation with AI (adds ~1–2 s)": "Upravit diktát pomocí AI (přidá ~1–2 s)",
         "Structure meeting notes with AI": "Strukturovat poznámky ze schůzek pomocí AI",
@@ -97,6 +98,20 @@ public enum L10n {
         "Open Meetings Folder": "Otevřít složku schůzek", "Check Permissions…": "Zkontrolovat oprávnění…", "Quit Vocaret": "Ukončit Vocaret",
         "Recording dictation…": "Nahrávám diktát…", "Transcribing dictation…": "Přepisuji diktát…",
         "Recording meeting…": "Nahrávám schůzku…", "Processing meeting…": "Zpracovávám schůzku…",
+        // Main menu (⌘-shortcuts while the window is open)
+        "Hide Vocaret": "Skrýt Vocaret", "Edit": "Úpravy", "Undo": "Zpět", "Redo": "Znovu", "Cut": "Vyjmout",
+        "Paste": "Vložit", "Select All": "Vybrat vše", "Window": "Okno", "Close": "Zavřít", "Minimize": "Minimalizovat",
+        // Confirmations + settings details
+        "Delete all transcripts?": "Smazat všechny přepisy?", "Delete All": "Smazat vše",
+        "This removes the dictation history files from this Mac. It cannot be undone.": "Smaže soubory s historií diktátů z tohoto Macu. Nelze vrátit zpět.",
+        "Delete this transcript?": "Smazat tento přepis?",
+        "It is removed from the history files on this Mac. It cannot be undone.": "Bude odstraněn ze souborů historie na tomto Macu. Nelze vrátit zpět.",
+        "Custom: ": "Vlastní: ",
+        "Available when running the built Vocaret.app (scripts/build_app.sh).": "Dostupné při spuštění sestavené Vocaret.app (scripts/build_app.sh).",
+        "macOS is waiting for your approval in System Settings → General → Login Items.": "macOS čeká na tvé schválení v Nastavení systému → Obecné → Položky přihlášení.",
+        "Open…": "Otevřít…",
+        "is already the meeting shortcut — choose a different one.": "už je zkratka pro schůzky — zvol jinou.",
+        "is already the dictation shortcut — choose a different one.": "už je zkratka pro diktování — zvol jinou.",
     ]
 }
 

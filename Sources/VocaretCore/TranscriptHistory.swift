@@ -14,8 +14,20 @@ public final class TranscriptHistory: @unchecked Sendable {
     }
 
     private let lock = NSLock()
+    /// All file writes go through here so an append from a finishing
+    /// dictation cannot interleave with a rewrite from a delete.
+    private let diskQueue = DispatchQueue(label: "vocaret.history.disk")
     private let directory: URL?
     private var records: [DictationRecord] = []
+    /// Records that are actually in the JSONL file. With "keep dictation
+    /// history" off, records live in memory only and must never be promoted
+    /// to disk by a later delete/rewrite.
+    private var persistedIDs = Set<UUID>()
+    /// Lines of the JSONL we could not decode (hand edits, a future format).
+    /// Carried through rewrites verbatim instead of being silently dropped.
+    private var unreadableLines: [String] = []
+    /// The file exists but could not be read at all — never rewrite it.
+    private var diskIsUntrusted = false
     private var listeners: [UUID: @Sendable ([DictationRecord]) -> Void] = [:]
 
     public init(directory: URL?) {
@@ -61,13 +73,15 @@ public final class TranscriptHistory: @unchecked Sendable {
         var stored = record
         stored.text = trimmed
 
+        let keep = SettingsStore.shared.keepDictationHistory
         lock.lock()
         records.append(stored)
+        if keep { persistedIDs.insert(stored.id) }
         let snapshot = records
         let callbacks = Array(listeners.values)
         lock.unlock()
 
-        if SettingsStore.shared.keepDictationHistory {
+        if keep {
             appendToDisk(stored)
         }
         for callback in callbacks { callback(snapshot) }
@@ -76,16 +90,20 @@ public final class TranscriptHistory: @unchecked Sendable {
     public func delete(id: UUID) {
         lock.lock()
         records.removeAll { $0.id == id }
+        persistedIDs.remove(id)
         let snapshot = records
+        let onDisk = records.filter { persistedIDs.contains($0.id) }
         let callbacks = Array(listeners.values)
         lock.unlock()
-        rewriteDisk(snapshot)
+        rewriteDisk(onDisk)
         for callback in callbacks { callback(snapshot) }
     }
 
     public func clear() {
         lock.lock()
         records.removeAll()
+        persistedIDs.removeAll()
+        unreadableLines.removeAll()
         let callbacks = Array(listeners.values)
         lock.unlock()
         rewriteDisk([])
@@ -108,17 +126,35 @@ public final class TranscriptHistory: @unchecked Sendable {
 
     private func load() {
         guard let jsonlURL else { return }
-        if let data = try? Data(contentsOf: jsonlURL), let text = String(data: data, encoding: .utf8) {
-            let decoder = JSONDecoder()
-            decoder.dateDecodingStrategy = .iso8601
-            records = text.split(separator: "\n").compactMap { line in
-                try? decoder.decode(DictationRecord.self, from: Data(line.utf8))
-            }
+        guard FileManager.default.fileExists(atPath: jsonlURL.path) else {
+            // First run after the upgrade: import the old Markdown history so
+            // nothing the user dictated before disappears from the dashboard.
+            migrateMarkdown()
             return
         }
-        // First run after the upgrade: import the old Markdown history so
-        // nothing the user dictated before disappears from the dashboard.
-        migrateMarkdown()
+        guard let data = try? Data(contentsOf: jsonlURL) else {
+            Log.error("Could not read \(jsonlURL.lastPathComponent) — starting with an empty history; the file is left untouched")
+            diskIsUntrusted = true
+            return
+        }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        // Lossy decoding: a truncated multi-byte character at the end of the
+        // file must not make the whole history "unreadable".
+        let lines = String(decoding: data, as: UTF8.self).split(separator: "\n").map(String.init)
+        var loaded: [DictationRecord] = []
+        for line in lines where !line.trimmingCharacters(in: .whitespaces).isEmpty {
+            if let record = try? decoder.decode(DictationRecord.self, from: Data(line.utf8)) {
+                loaded.append(record)
+            } else {
+                unreadableLines.append(line)
+            }
+        }
+        if !unreadableLines.isEmpty {
+            Log.warn("\(unreadableLines.count) line(s) in \(jsonlURL.lastPathComponent) could not be decoded — kept verbatim")
+        }
+        records = loaded
+        persistedIDs = Set(loaded.map(\.id))
     }
 
     private func migrateMarkdown() {
@@ -137,12 +173,14 @@ public final class TranscriptHistory: @unchecked Sendable {
         }
         guard !imported.isEmpty else { return }
         records = imported
+        persistedIDs = Set(imported.map(\.id))
         rewriteDisk(imported)
         Log.info("Imported \(imported.count) dictations from the old Markdown history")
     }
 
     private func appendToDisk(_ record: DictationRecord) {
         guard let jsonlURL, let directory else { return }
+        diskQueue.sync {
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
@@ -161,16 +199,27 @@ public final class TranscriptHistory: @unchecked Sendable {
         } else {
             try? ("# Vocaret dictation history\n\n" + mdLine).write(to: fileURL, atomically: true, encoding: .utf8)
         }
+        }
     }
 
     private func rewriteDisk(_ records: [DictationRecord]) {
         guard let jsonlURL else { return }
+        lock.lock()
+        let untrusted = diskIsUntrusted
+        let keptVerbatim = unreadableLines
+        lock.unlock()
+        if untrusted {
+            Log.warn("Not rewriting \(jsonlURL.lastPathComponent): it could not be read at launch")
+            return
+        }
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
-        let lines = records.compactMap { try? encoder.encode($0) }.map { String(decoding: $0, as: UTF8.self) }
-        try? (lines.joined(separator: "\n") + (lines.isEmpty ? "" : "\n")).write(to: jsonlURL, atomically: true, encoding: .utf8)
+        let lines = keptVerbatim + records.compactMap { try? encoder.encode($0) }.map { String(decoding: $0, as: UTF8.self) }
         let md = "# Vocaret dictation history\n\n" + records.map { "- **\(Self.formatter.string(from: $0.date))** \($0.text)" }.joined(separator: "\n") + "\n"
-        try? md.write(to: fileURL, atomically: true, encoding: .utf8)
+        diskQueue.sync {
+            try? (lines.joined(separator: "\n") + (lines.isEmpty ? "" : "\n")).write(to: jsonlURL, atomically: true, encoding: .utf8)
+            try? md.write(to: fileURL, atomically: true, encoding: .utf8)
+        }
     }
 
     private static let formatter: DateFormatter = {

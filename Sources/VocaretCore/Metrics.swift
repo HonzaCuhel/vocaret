@@ -105,7 +105,9 @@ public struct SpeechAnalysis: Equatable, Sendable {
     public var fillerRate = 0.0
     public var topFillers: [Filler] = []
     public var averageSentenceLength = 0.0
-    /// Type/token ratio — unique words over all words. Higher = richer.
+    /// Moving-average type/token ratio over 100-word windows (MATTR). Higher =
+    /// richer. Conversational speech lands around 0.65–0.75; unlike raw TTR it
+    /// does not fall as the user dictates more.
     public var vocabularyRichness = 0.0
     public var longestSentenceWords = 0
 
@@ -122,27 +124,27 @@ public struct SpeechAnalysis: Equatable, Sendable {
         guard !texts.isEmpty else { return analysis }
 
         var fillerCounts: [String: Int] = [:]
-        var uniqueWords = Set<String>()
+        var tokens: [String] = []
         var sentenceLengths: [Int] = []
 
         for text in texts {
-            var lower = text.lowercased()
-            for phrase in fillerPhrases {
-                let occurrences = lower.components(separatedBy: phrase).count - 1
-                if occurrences > 0 {
-                    fillerCounts[phrase, default: 0] += occurrences
-                    lower = lower.replacingOccurrences(of: phrase, with: " ")
+            for rawSentence in splitSentences(text) {
+                var lower = rawSentence.lowercased()
+                for phrase in fillerPhrases {
+                    let occurrences = lower.components(separatedBy: phrase).count - 1
+                    if occurrences > 0 {
+                        fillerCounts[phrase, default: 0] += occurrences
+                        lower = lower.replacingOccurrences(of: phrase, with: " ")
+                    }
                 }
-            }
-            for sentence in lower.components(separatedBy: CharacterSet(charactersIn: ".!?")) {
-                let words = sentence
+                let words = lower
                     .components(separatedBy: CharacterSet.alphanumerics.inverted)
                     .filter { !$0.isEmpty }
                 guard !words.isEmpty else { continue }
                 sentenceLengths.append(words.count)
                 for word in words {
                     analysis.totalWords += 1
-                    uniqueWords.insert(word)
+                    tokens.append(word)
                     if fillerWords.contains(word) { fillerCounts[word, default: 0] += 1 }
                 }
             }
@@ -157,7 +159,53 @@ public struct SpeechAnalysis: Equatable, Sendable {
             .map { $0 }
         analysis.averageSentenceLength = sentenceLengths.isEmpty ? 0 : Double(sentenceLengths.reduce(0, +)) / Double(sentenceLengths.count)
         analysis.longestSentenceWords = sentenceLengths.max() ?? 0
-        analysis.vocabularyRichness = analysis.totalWords > 0 ? Double(uniqueWords.count) / Double(analysis.totalWords) : 0
+        analysis.vocabularyRichness = movingAverageTTR(tokens, window: 100)
         return analysis
+    }
+
+    /// Sentence boundaries: `.`, `!` or `?` followed by whitespace and a
+    /// capital letter, or the end of the text. Splitting on every period
+    /// would chop Czech ordinals ("18. srpna"), abbreviations ("např.") and
+    /// decimals ("2.5") into one-word "sentences".
+    static func splitSentences(_ text: String) -> [String] {
+        let ns = text as NSString
+        let matches = sentenceBoundary.matches(in: text, range: NSRange(location: 0, length: ns.length))
+        var sentences: [String] = []
+        var start = 0
+        for match in matches {
+            let end = match.range.location + match.range.length
+            sentences.append(ns.substring(with: NSRange(location: start, length: end - start)))
+            start = end
+        }
+        if start < ns.length { sentences.append(ns.substring(from: start)) }
+        return sentences
+    }
+    private static let sentenceBoundary = try! NSRegularExpression(pattern: #"[.!?]+(?=\s+\p{Lu}|\s*$)"#)
+
+    /// Mean type/token ratio over sliding `window`-token windows (MATTR). Raw
+    /// TTR falls as the corpus grows (Heaps' law), so a heavy user would be
+    /// told their vocabulary "repeats a lot" just for dictating more. MATTR is
+    /// stable across sample sizes; falls back to raw TTR below one window.
+    static func movingAverageTTR(_ tokens: [String], window: Int) -> Double {
+        guard !tokens.isEmpty else { return 0 }
+        guard tokens.count > window else { return Double(Set(tokens).count) / Double(tokens.count) }
+        var counts: [String: Int] = [:]
+        var distinct = 0
+        var sum = 0.0
+        var windows = 0
+        for (index, token) in tokens.enumerated() {
+            if counts[token, default: 0] == 0 { distinct += 1 }
+            counts[token, default: 0] += 1
+            if index >= window {
+                let leaving = tokens[index - window]
+                counts[leaving]! -= 1
+                if counts[leaving] == 0 { distinct -= 1 }
+            }
+            if index >= window - 1 {
+                sum += Double(distinct) / Double(window)
+                windows += 1
+            }
+        }
+        return sum / Double(windows)
     }
 }

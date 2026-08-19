@@ -8,6 +8,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
     public func applicationDidFinishLaunching(_ notification: Notification) {
         Appearance.apply(SettingsStore.shared.appearance)
+        MainWindowController.installMainMenu()
         statusController = StatusItemController(dictation: dictation, meeting: meeting)
         registerHotkeys()
         LLMCleaner.shared.reapStaleServer()
@@ -22,13 +23,13 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         // Preload Whisper so the first dictation is instant. First launch
-        // downloads the model (~632 MB), so surface that in the HUD.
+        // downloads the model (~1.6 GB), so surface that in the HUD.
         Task { @MainActor in
             let modelPresent = FileManager.default.fileExists(
                 atPath: SettingsStore.shared.modelsDir.appendingPathComponent("models").path
             )
             if !modelPresent {
-                HUD.shared.flash("Downloading Whisper model (one-time, ~630 MB)…", seconds: 6)
+                HUD.shared.flash("Downloading Whisper model (one-time, ~1.6 GB)…", seconds: 6)
             }
             await Transcriber.shared.preload()
             let ready = await Transcriber.shared.isReady
@@ -49,6 +50,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     public func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         MainWindowController.shared.show()
         return true
+    }
+
+    @objc public func openMainWindowFromMenu(_ sender: Any?) {
+        MainWindowController.shared.show()
     }
 
     public func applicationWillTerminate(_ notification: Notification) {

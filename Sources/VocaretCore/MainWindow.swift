@@ -17,7 +17,52 @@ public final class MainWindowController: NSObject, NSWindowDelegate {
     /// Swap the root view so every L() string re-resolves in the new language.
     private func rebuildContent() {
         guard let window else { return }
+        // A new content controller resizes the window to the view's minimum
+        // size; keep the user's frame.
+        let frame = window.frame
         window.contentViewController = NSHostingController(rootView: MainView().environmentObject(AppModel.shared))
+        window.setFrame(frame, display: true)
+    }
+
+    /// Menu-bar apps have no main menu, but AppKit routes ⌘C/⌘V/⌘A/⌘Z and
+    /// ⌘W/⌘Q through one — without it the search field and vocabulary editor
+    /// cannot paste and ⌘Q does nothing while the window is frontmost. The
+    /// menu is invisible in the accessory policy and appears with the window.
+    public static func installMainMenu() {
+        let main = NSMenu()
+
+        let appMenu = NSMenu()
+        appMenu.addItem(withTitle: L("Open Vocaret…"), action: #selector(AppDelegate.openMainWindowFromMenu), keyEquivalent: "o")
+        appMenu.addItem(.separator())
+        appMenu.addItem(withTitle: L("Hide Vocaret"), action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
+        appMenu.addItem(.separator())
+        appMenu.addItem(withTitle: L("Quit Vocaret"), action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        let appItem = NSMenuItem()
+        appItem.submenu = appMenu
+        main.addItem(appItem)
+
+        let edit = NSMenu(title: L("Edit"))
+        edit.addItem(withTitle: L("Undo"), action: Selector(("undo:")), keyEquivalent: "z")
+        let redo = edit.addItem(withTitle: L("Redo"), action: Selector(("redo:")), keyEquivalent: "z")
+        redo.keyEquivalentModifierMask = [.command, .shift]
+        edit.addItem(.separator())
+        edit.addItem(withTitle: L("Cut"), action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+        edit.addItem(withTitle: L("Copy"), action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        edit.addItem(withTitle: L("Paste"), action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        edit.addItem(withTitle: L("Select All"), action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        let editItem = NSMenuItem()
+        editItem.submenu = edit
+        main.addItem(editItem)
+
+        let windowMenu = NSMenu(title: L("Window"))
+        windowMenu.addItem(withTitle: L("Close"), action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
+        windowMenu.addItem(withTitle: L("Minimize"), action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
+        let windowItem = NSMenuItem()
+        windowItem.submenu = windowMenu
+        main.addItem(windowItem)
+        NSApp.windowsMenu = windowMenu
+
+        NSApp.mainMenu = main
     }
 
     public func show(section: MainSection? = nil) {
@@ -254,12 +299,14 @@ struct PeakHoursCard: View {
             if wordsByHour.allSatisfy({ $0 == 0 }) {
                 Text(L("Nothing yet.")).foregroundStyle(.secondary).frame(maxWidth: .infinity, minHeight: 160)
             } else {
+                // Nominal (string) x axis: with an Int axis the 00 and 23 bars
+                // sit on the domain edges and are drawn half-clipped.
                 Chart(wordsByHour.enumerated().map { HourBucket(id: $0.offset, words: $0.element) }) { bucket in
-                    BarMark(x: .value("Hour", bucket.id), y: .value("Words", bucket.words))
+                    BarMark(x: .value("Hour", String(format: "%02d", bucket.id)), y: .value("Words", bucket.words))
                         .cornerRadius(2)
                         .foregroundStyle(bucket.id == peak ? AnyShapeStyle(.tint) : AnyShapeStyle(.tint.opacity(0.35)))
                 }
-                .chartXAxis { AxisMarks(values: [0, 6, 12, 18, 23]) { value in AxisValueLabel { if let h = value.as(Int.self) { Text(String(format: "%02d", h)) } } } }
+                .chartXAxis { AxisMarks(values: ["00", "06", "12", "18", "23"]) { value in AxisValueLabel { if let h = value.as(String.self) { Text(h) } } } }
                 .frame(height: 160)
             }
         }
@@ -308,6 +355,7 @@ struct HistoryView: View {
     @EnvironmentObject var model: AppModel
     @State private var query = ""
     @State private var selection: DictationRecord.ID?
+    @State private var confirmClear = false
 
     private var filtered: [DictationRecord] {
         guard !query.isEmpty else { return model.records }
@@ -348,7 +396,19 @@ struct HistoryView: View {
         .navigationTitle(L("History"))
         .toolbar {
             ToolbarItem { Button { model.copy(model.records.first?.text ?? "") } label: { Label(L("Copy last"), systemImage: "doc.on.doc") }.disabled(model.records.isEmpty) }
-            ToolbarItem { Menu { Button(L("Clear all history…"), role: .destructive) { model.clearHistory() } } label: { Image(systemName: "ellipsis.circle") } }
+            ToolbarItem {
+                Menu {
+                    Button(L("Clear all history…"), role: .destructive) { confirmClear = true }.disabled(model.records.isEmpty)
+                } label: { Image(systemName: "ellipsis.circle") }
+            }
+        }
+        .confirmationDialog(
+            Text(L("Delete all transcripts?") + " (\(model.records.count))"),
+            isPresented: $confirmClear, titleVisibility: .visible
+        ) {
+            Button(L("Delete All"), role: .destructive) { model.clearHistory() }
+        } message: {
+            Text(L("This removes the dictation history files from this Mac. It cannot be undone."))
         }
     }
 }
@@ -357,6 +417,7 @@ struct TranscriptDetail: View {
     @EnvironmentObject var model: AppModel
     let record: DictationRecord
     @State private var copied = false
+    @State private var confirmDelete = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -386,7 +447,12 @@ struct TranscriptDetail: View {
                 } label: { Label(copied ? L("Copied") : L("Copy"), systemImage: copied ? "checkmark" : "doc.on.doc") }
                 .keyboardShortcut("c", modifiers: [.command, .shift])
                 Spacer()
-                Button(role: .destructive) { model.delete(record) } label: { Label(L("Delete"), systemImage: "trash") }
+                Button(role: .destructive) { confirmDelete = true } label: { Label(L("Delete"), systemImage: "trash") }
+                    .confirmationDialog(Text(L("Delete this transcript?")), isPresented: $confirmDelete, titleVisibility: .visible) {
+                        Button(L("Delete"), role: .destructive) { model.delete(record) }
+                    } message: {
+                        Text(L("It is removed from the history files on this Mac. It cannot be undone."))
+                    }
             }
         }
         .padding(20)

@@ -155,10 +155,10 @@ public enum SpeechCoach {
                 : "Sentences are very short (avg \(fmt(analysis.averageSentenceLength)) words). Try linking them with a reason — \"because\", \"so\" — so the thought holds together.")
         }
 
-        if analysis.vocabularyRichness > 0, analysis.vocabularyRichness < 0.42, analysis.totalWords > 200 {
+        if analysis.vocabularyRichness > 0, analysis.vocabularyRichness < 0.62, analysis.totalWords > 200 {
             want(.clarity, czech ? "pestrost slovníku \(fmt(analysis.vocabularyRichness * 100)) %" : "vocabulary richness \(fmt(analysis.vocabularyRichness * 100))%")
         }
-        if analysis.vocabularyRichness > 0, analysis.vocabularyRichness < 0.35, analysis.totalWords > 200 {
+        if analysis.vocabularyRichness > 0, analysis.vocabularyRichness < 0.55, analysis.totalWords > 200 {
             observations.append(czech
                 ? "Slovník se hodně opakuje (pestrost \(fmt(analysis.vocabularyRichness * 100)) %). Zkus jednou denně nahradit obvyklé slovo přesnějším."
                 : "Your vocabulary repeats a lot (richness \(fmt(analysis.vocabularyRichness * 100))%). Once a day, swap a usual word for a more precise one.")
