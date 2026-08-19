@@ -64,7 +64,7 @@ public enum SelfTest {
                 fail("unknown self-test mode '\(mode)'")
             }
             emit("=== DONE: \(failures == 0 ? "ALL PASSED" : "\(failures) FAILURE(S)") ===")
-            LLMCleaner.shared.terminateServerNow()
+            LLMCleaner.shared.terminateOwnedServer()
             exit(failures == 0 ? 0 : 1)
         }
         app.run()
@@ -164,7 +164,7 @@ public enum SelfTest {
         let dirty = "no takže ehm zítra máme jako schůzku v devět a ehm potřebuju abys mi vlastně poslal ten report jo"
         // Real-world path: warm-up fires when recording starts; the user then
         // speaks for a few seconds; only then is cleanup requested.
-        LLMCleaner.shared.terminateServerNow()
+        LLMCleaner.shared.terminateOwnedServer()
         try? await Task.sleep(nanoseconds: 1_500_000_000)
         emit("[llm] warmUp() at 'recording start', then 4 s of 'speaking'…")
         LLMCleaner.shared.warmUp()

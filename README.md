@@ -86,8 +86,8 @@ skipped, and it tells you so.
 
 ### First run
 
-The speech model (~626 MB) downloads on first launch. The menu bar shows the
-progress; until it finishes, dictation will wait.
+The speech model (~1.6 GB, Whisper large-v3-turbo) downloads on first launch.
+The menu bar shows the progress; until it finishes, dictation will wait.
 
 macOS will ask for permissions as you first use each feature:
 
@@ -140,8 +140,14 @@ The Settings tab covers the common cases (shortcuts, language, model, AI cleanup
 vocabulary, behaviour). Everything is also reachable via `defaults`:
 
 ```bash
-# Smaller/faster speech model (default: openai_whisper-large-v3-v20240930_626MB)
-defaults write com.jancuhel.vocaret whisperModel openai_whisper-small
+# Smaller/faster speech model (default: openai_whisper-large-v3-v20240930)
+defaults write com.jancuhel.vocaret whisperModel openai_whisper-large-v3-v20240930_626MB
+
+# Optional second engine: NVIDIA Parakeet TDT 0.6B v3 (Core ML via FluidAudio).
+# 3–5× faster than Whisper and excellent on clean Czech or English, but it has no
+# language control — on short or mixed cs/en utterances it drifts ("git hub",
+# "Ah no" for "Ano"). Also in Settings → Speech engine. Downloads ~500 MB once.
+defaults write com.jancuhel.vocaret asrEngine parakeet   # or: whisper
 
 # Change the dictation hotkey (Carbon key code + modifier mask:
 # ctrl 0x1000, opt 0x800, shift 0x200, cmd 0x100, ORed together).
@@ -182,14 +188,21 @@ Restart Vocaret after changing hotkeys.
 
 ## Performance
 
-Whisper `large-v3-turbo` (626 MB, quantized) runs on the Neural Engine — a short
-dictation transcribes in well under a second once warm. Resident memory with the
-model loaded is roughly 700–900 MB, most of it memory-mapped weights macOS can
-reclaim. The cleanup LLM costs **zero RAM when idle**: `llama-server` is spawned
-per job and killed after 120 seconds (~2.8 GB while it runs).
+Whisper `large-v3-turbo` runs on the Neural Engine — a short dictation
+transcribes in about a second once warm (one-word utterances ~0.8 s: short
+clips reuse the last detected language instead of running detection again).
+Resident memory with the model loaded is roughly 1–1.5 GB, most of it
+memory-mapped weights macOS can reclaim. Parakeet (optional engine) transcribes
+the same clips in 0.1–0.4 s.
 
-Lightest setup: `whisperModel openai_whisper-small` + `keepModelLoaded false` +
-AI cleanup off.
+The cleanup LLM is nearly free when idle: `llama-server` stays running but
+**sleeps** (unloads the model, ~80 MB resident) after 2–5 idle minutes and wakes
+in about a second — Vocaret wakes it the moment a recording starts, so by the
+time Whisper finishes the model is ready. Awake it uses ~4.6 GB. Measured felt
+latency for cleanup: ~1 s warm, ~2.6 s from sleep.
+
+Lightest setup: `whisperModel openai_whisper-large-v3-v20240930_626MB` +
+`keepModelLoaded false` + AI cleanup off.
 
 ## Uninstall
 

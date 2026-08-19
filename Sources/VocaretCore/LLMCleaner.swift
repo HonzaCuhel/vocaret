@@ -6,6 +6,7 @@ final class ProcessBox: @unchecked Sendable {
     private let lock = NSLock()
     private var process: Process?
     private var pid: pid_t?
+    private var adopted = false
 
     /// Track a server we spawned. Its PID is persisted so a later app launch
     /// can reap it if this one crashes or is force-quit.
@@ -14,6 +15,7 @@ final class ProcessBox: @unchecked Sendable {
         defer { lock.unlock() }
         process = newProcess
         pid = newProcess.processIdentifier
+        adopted = false
         try? String(newProcess.processIdentifier).write(to: pidFile, atomically: true, encoding: .utf8)
     }
 
@@ -24,6 +26,22 @@ final class ProcessBox: @unchecked Sendable {
         defer { lock.unlock() }
         process = nil
         pid = adoptedPid
+        adopted = true
+    }
+
+    /// True when the tracked server belongs to another Vocaret process (the
+    /// running menu-bar app) rather than one this process spawned.
+    var isAdopted: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return adopted
+    }
+
+    /// Whether anything is tracked at all (spawned or adopted).
+    var hasTarget: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return process != nil || pid != nil
     }
 
     func terminate() {
@@ -49,8 +67,9 @@ final class ProcessBox: @unchecked Sendable {
 
 /// Cleans dictation and structures meeting transcripts with a local LLM.
 ///
-/// RAM strategy: `llama-server` is spawned only when needed and killed after
-/// 120 s idle, so the ~2.5 GB model occupies memory only around actual work.
+/// RAM strategy: `llama-server` is spawned on first use and told to sleep
+/// (unload the model, ~80 MB resident) after a few idle minutes, so the
+/// ~4.6 GB it needs awake is occupied only around actual work.
 /// Every public method degrades gracefully — on any failure the original
 /// text is returned unchanged and the pipeline continues.
 public actor LLMCleaner {
@@ -59,18 +78,33 @@ public actor LLMCleaner {
     nonisolated let processBox = ProcessBox()
     private var idleShutdownTask: Task<Void, Never>?
 
-    /// How long the server stays resident after the last request. Measured:
-    /// a cold start costs ~1.7 s + ~1 s of prompt evaluation, so with cleanup
-    /// enabled we keep it warm for a while (RAM ~2.8 GB while resident).
-    private var idleTimeout: TimeInterval { SettingsStore.shared.cleanDictation ? 600 : 120 }
+    /// Idle seconds after which llama-server unloads the model but keeps the
+    /// process and port alive (`--sleep-idle-seconds`). Measured on an M3 Pro
+    /// with Qwen3-4B: awake 4.6 GB RSS, asleep 80 MB; a request that wakes it
+    /// takes ~2.6 s vs ~3.3 s for a fresh spawn — and `warmUp()` at recording
+    /// start hides that anyway. So the model sleeps quickly, and the process
+    /// itself is only killed after a long idle (or on quit).
+    private var sleepAfterSeconds: Int { SettingsStore.shared.cleanDictation ? 300 : 120 }
+    private let idleTimeout: TimeInterval = 3600
     private let startupTimeout: TimeInterval = 90
 
     public init() {}
 
-    /// Kill the spawned server immediately (used on app quit).
+    /// Kill the spawned server immediately (used on app quit). The pidfile is
+    /// only ours to delete if we track a server — a CLI run must not erase the
+    /// menu-bar app's pidfile just because it exits.
     public nonisolated func terminateServerNow() {
+        guard processBox.hasTarget else { return }
         processBox.terminate()
         try? FileManager.default.removeItem(at: Self.pidFile)
+    }
+
+    /// For the headless CLI modes (`--coach`, `--selftest`): shut down only a
+    /// server this process spawned. One adopted from the running menu-bar app
+    /// stays up — killing it would fail the app's in-flight cleanup.
+    public nonisolated func terminateOwnedServer() {
+        guard !processBox.isAdopted else { return }
+        terminateServerNow()
     }
 
     private static var pidFile: URL {
@@ -366,9 +400,7 @@ public actor LLMCleaner {
         let (serverPath, modelPath) = try resolvePaths()
         Log.info("Starting llama-server (\(modelPath))…")
 
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: serverPath)
-        process.arguments = [
+        let baseArguments = [
             "-m", modelPath,
             "--host", "127.0.0.1",
             "--port", String(SettingsStore.shared.llmPort),
@@ -376,23 +408,45 @@ public actor LLMCleaner {
             "-ngl", "99",
             "--jinja",
         ]
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
-        try process.run()
-        processBox.set(process, pidFile: Self.pidFile)
+        // One slot: we never send concurrent requests, and the default "auto"
+        // allocates four 16k slots. Flash attention is ~10 % faster on Metal.
+        // Sleep frees the model's RAM between sessions. Older llama.cpp builds
+        // reject these flags and exit immediately — then retry without them.
+        let tuningArguments = [
+            "-np", "1",
+            "-fa", "on",
+            "--sleep-idle-seconds", String(sleepAfterSeconds),
+        ]
 
-        let deadline = Date().addingTimeInterval(startupTimeout)
-        while Date() < deadline {
-            if await healthy() {
-                Log.info("llama-server ready")
-                return
+        for arguments in [baseArguments + tuningArguments, baseArguments] {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: serverPath)
+            process.arguments = arguments
+            process.standardOutput = FileHandle.nullDevice
+            process.standardError = FileHandle.nullDevice
+            try process.run()
+            processBox.set(process, pidFile: Self.pidFile)
+
+            let deadline = Date().addingTimeInterval(startupTimeout)
+            var exitedOnItsOwn = false
+            while Date() < deadline {
+                if await healthy() {
+                    Log.info("llama-server ready")
+                    return
+                }
+                if !process.isRunning {
+                    exitedOnItsOwn = true
+                    break
+                }
+                try? await Task.sleep(nanoseconds: 100_000_000)
             }
-            if !process.isRunning {
-                break
+            processBox.terminate()
+            if exitedOnItsOwn, arguments.count > baseArguments.count {
+                Log.warn("llama-server rejected tuning flags — retrying with the basic ones")
+                continue
             }
-            try? await Task.sleep(nanoseconds: 100_000_000)
+            break
         }
-        processBox.terminate()
         throw LLMError.serverDidNotStart
     }
 
