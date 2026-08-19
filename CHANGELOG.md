@@ -3,6 +3,43 @@
 Versioning: [SemVer](https://semver.org/). While at 0.x, minor versions may
 change behaviour and defaults.
 
+## [Unreleased] — 0.3.0
+
+### Added
+- Appearance (Follow System / Light / Dark) in the menu and Settings.
+- Czech user interface (Settings → Interface language; ~150 strings), applied
+  live; auto-detect language checklist (12 languages).
+- Optional speech engine: NVIDIA Parakeet TDT 0.6B v3 via FluidAudio
+  (Settings → Speech engine, ~500 MB download). 3–5× faster than Whisper on
+  clean speech; Whisper stays the default because Parakeet drifts on short or
+  mixed-language utterances.
+- Main menu (Edit / Window) so ⌘C/⌘V/⌘A/⌘Z/⌘W/⌘Q work while the window is open.
+- Confirmation before clearing history or deleting a transcript.
+
+### Changed
+- Uniform title-bar height on every tab (one window-owned toolbar).
+- Short dictations (< 3 s) reuse the last detected language — one encoder pass
+  instead of three (one-word dictation 2.2 s → 0.8 s).
+- AI cleanup feels ~3× faster: the model is warmed when a recording starts, and
+  `llama-server` now sleeps (80 MB resident) instead of being killed, waking in
+  ~1 s. Launch flags: `-np 1 -fa on --sleep-idle-seconds`.
+- Coach vocabulary metric is a moving-average type/token ratio (MATTR), so it
+  no longer falls the more you dictate; sentence statistics no longer break on
+  Czech ordinals/abbreviations/decimals.
+- Settings writes only the fields you changed (menu-bar toggles are no longer
+  reverted while the Settings tab is open).
+
+### Fixed
+- Changing the interface language could wedge the app's main thread.
+- Shortcut recorder leaked a key monitor (swallowed ⌘/⌥ keys) if you left
+  Settings mid-recording; Esc now cancels; Shift-only chords and duplicate
+  chords are refused.
+- Deleting a transcript with "keep history" off no longer writes the memory-only
+  transcripts to disk; an unreadable history file is never overwritten.
+- First Automation (Spotify/Music) prompt no longer appears mid-recording.
+- Peak-hours chart clipped the 00 and 23 bars; login toggle lied when unbundled;
+  `--coach` / `--selftest` no longer kill the running app's llama-server.
+
 ## [0.2.0] — 2026-08-18
 
 ### Added
