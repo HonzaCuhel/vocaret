@@ -9,6 +9,7 @@ copyright.
 | Component | Copyright | License |
 |---|---|---|
 | [WhisperKit](https://github.com/argmaxinc/WhisperKit) | © 2024 Argmax, Inc. | MIT |
+| [FluidAudio](https://github.com/FluidInference/FluidAudio) | © FluidInference | Apache-2.0 |
 | [swift-transformers](https://github.com/huggingface/swift-transformers) | © Hugging Face SAS | Apache-2.0 |
 | [swift-jinja](https://github.com/johnmai-dev/swift-jinja) | © Hugging Face SAS / John Mai | Apache-2.0 |
 | [swift-argument-parser](https://github.com/apple/swift-argument-parser) | © Apple Inc. | Apache-2.0 |
@@ -29,6 +30,15 @@ Downloaded on first launch into `~/Library/Application Support/Vocaret/Models`.
 The underlying [Whisper](https://github.com/openai/whisper) model and code are
 © OpenAI, MIT licensed. Vocaret deliberately does **not** bundle these weights;
 they are fetched from their original source at runtime.
+
+**Parakeet TDT 0.6B v3 (optional speech engine)** — © NVIDIA Corporation,
+[CC-BY-4.0](https://creativecommons.org/licenses/by/4.0/). Original model:
+[nvidia/parakeet-tdt-0.6b-v3](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3);
+the Core ML conversion Vocaret downloads (~500 MB, only if you pick Parakeet in
+Settings → Speech engine) is hosted at
+[FluidInference/parakeet-tdt-0.6b-v3-coreml](https://huggingface.co/FluidInference/parakeet-tdt-0.6b-v3-coreml)
+and stored in `~/Library/Application Support/Vocaret/Models/parakeet`. Not
+redistributed by Vocaret.
 
 ## Optional, installed by the user (not distributed with Vocaret)
 

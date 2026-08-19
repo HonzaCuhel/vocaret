@@ -10,12 +10,16 @@ precisely what that means — including the parts that are not absolute.
 (`llama-server` on `127.0.0.1`). There is no analytics, no telemetry, no crash
 reporting, no account, and no server operated by anyone.
 
-**Two downloads, both one-time and both of models, never of your data:**
+**Three possible downloads, all one-time and all of models, never of your data:**
 
-1. On first launch Vocaret downloads the speech-recognition model (~626 MB) from
-   Hugging Face (`huggingface.co`, repository `argmaxinc/whisperkit-coreml`).
+1. On first launch Vocaret downloads the speech-recognition model (~1.6 GB for
+   the default Whisper large-v3-turbo) from Hugging Face (`huggingface.co`,
+   repository `argmaxinc/whisperkit-coreml`).
 2. If you run `scripts/setup_llm.sh`, it downloads a language model (~2.4 GB)
    from Hugging Face and installs `llama.cpp` via Homebrew.
+3. Only if you switch Settings → Speech engine to Parakeet: the NVIDIA Parakeet
+   TDT 0.6B v3 Core ML model (~500 MB) from Hugging Face (repository
+   `FluidInference/parakeet-tdt-0.6b-v3-coreml`).
 
 After that Vocaret works fully offline. You can verify this with Little Snitch,
 LuLu, or by disabling networking.

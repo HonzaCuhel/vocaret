@@ -36,6 +36,7 @@ public final class SettingsStore: @unchecked Sendable {
         static let hasShownWindow = "hasShownWindow"
         static let pauseMediaWhileRecording = "pauseMediaWhileRecording"
         static let appearance = "appearance"
+        static let asrEngine = "asrEngine"
         static let uiLanguage = "uiLanguage"
         static let keepModelLoaded = "keepModelLoaded"
         static let dictationKeyCode = "dictationKeyCode"
@@ -106,6 +107,12 @@ public final class SettingsStore: @unchecked Sendable {
     public var meetingConsentAcknowledged: Bool {
         get { boolValue(Key.meetingConsentAcknowledged, default: false) }
         set { defaults.set(newValue, forKey: Key.meetingConsentAcknowledged) }
+    }
+
+    /// "whisper" (default) | "parakeet" (experimental, faster, no language conditioning)
+    public var asrEngine: String {
+        get { defaults.string(forKey: Key.asrEngine) ?? "whisper" }
+        set { defaults.set(newValue, forKey: Key.asrEngine) }
     }
 
     /// "system" | "light" | "dark"

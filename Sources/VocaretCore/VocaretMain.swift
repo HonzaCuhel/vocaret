@@ -27,7 +27,7 @@ public enum VocaretMain {
                 for line in report.observations { print("→ \(line)") }
                 print("--- advice ---"); print(report.advice ?? "(LLM unavailable)")
                 print("--- books ---"); for book in report.books { print("• \(book.title) — \(book.author)") }
-                LLMCleaner.shared.terminateServerNow()
+                LLMCleaner.shared.terminateOwnedServer()
                 exit(0)
             }
             RunLoop.main.run()
@@ -44,6 +44,9 @@ public enum VocaretMain {
             if let langIndex = arguments.firstIndex(of: "--language"), arguments.count > langIndex + 1 {
                 SettingsStore.shared.language = arguments[langIndex + 1]
             }
+            if let engineIndex = arguments.firstIndex(of: "--engine"), arguments.count > engineIndex + 1 {
+                SettingsStore.shared.asrEngine = arguments[engineIndex + 1]
+            }
             runTranscribeCLI(path: arguments[flagIndex + 1])
             return
         }
@@ -58,9 +61,12 @@ public enum VocaretMain {
     private static func runTranscribeCLI(path: String) {
         Task.detached {
             do {
+                await Transcriber.shared.preload()
+                let started = Date()
                 let segments = try await Transcriber.shared.transcribe(
                     fileURL: URL(fileURLWithPath: path)
                 )
+                FileHandle.standardError.write(Data(String(format: "engine=%@ transcribe=%.2fs\n", SettingsStore.shared.asrEngine, Date().timeIntervalSince(started)).utf8))
                 for segment in segments {
                     print(String(format: "[%7.2f – %7.2f] %@", segment.start, segment.end, segment.text))
                 }

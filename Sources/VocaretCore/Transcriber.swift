@@ -8,6 +8,12 @@ public actor Transcriber {
     public static let shared = Transcriber()
 
     private var whisper: WhisperKit?
+    /// Language of the last confidently transcribed chunk. Short utterances
+    /// ("Ano.", "Hotovo.") are decoded with it directly — one encoder pass
+    /// instead of three — because people rarely switch language for one word.
+    private var stickyLanguage: String?
+    /// Below this, skip detection and trust `stickyLanguage`.
+    static let stickyLanguageMaxSeconds = 3.0
     /// In-flight load. Actors are reentrant at every `await`, so without this
     /// a hotkey press during the (minutes-long, first-launch) load would start
     /// a second download/CoreML load of the same model.
@@ -18,6 +24,9 @@ public actor Transcriber {
 
     /// Called at app launch so the first dictation has no model-load latency.
     public func preload() async {
+        if SettingsStore.shared.asrEngine == "parakeet" {
+            await ParakeetEngine.shared.preload()
+        }
         _ = try? await ensureLoaded()
     }
 
@@ -93,17 +102,37 @@ public actor Transcriber {
     }
 
     private func transcribeChunk(_ kit: WhisperKit, _ rawSamples: [Float], offset: Double) async throws -> [SpokenSegment] {
-        let samples = Self.padded(rawSamples)
         let settings = SettingsStore.shared
+        let chunkSeconds = Double(rawSamples.count) / MicRecorder.whisperSampleRate
+        if settings.asrEngine == "parakeet" {
+            // Parakeet: no zero-padding (it hurts short clips there), one segment
+            // per chunk, no per-language re-decode (not language-conditioned).
+            let hint = settings.language == "auto" ? nil : settings.language
+            let (text, confidence) = try await ParakeetEngine.shared.transcribe(samples: rawSamples, language: hint)
+            let clean = Self.sanitize(text)
+            if confidence < 0.6 { Log.warn("Parakeet low confidence \(confidence) for chunk at \(offset)s") }
+            guard !clean.isEmpty else { return [] }
+            return [SpokenSegment(start: offset, end: offset + Double(rawSamples.count) / MicRecorder.whisperSampleRate, text: clean)]
+        }
+        let samples = Self.padded(rawSamples)
         var results: [TranscriptionResult]
         if settings.language == "auto" {
-            results = try await kit.transcribe(audioArray: samples, decodeOptions: decodeOptions(language: nil))
             let allowed = settings.autoLanguages
-            if !allowed.isEmpty, let detected = results.first?.language, !allowed.contains(detected) {
-                let probs = try await kit.detectLangauge(audioArray: samples).langProbs
-                if let best = allowed.max(by: { (probs[$0] ?? -.infinity) < (probs[$1] ?? -.infinity) }) {
-                    Log.info("Whisper detected '\(detected)' (not allowed); re-decoding as '\(best)'")
-                    results = try await kit.transcribe(audioArray: samples, decodeOptions: decodeOptions(language: best))
+            if chunkSeconds < Self.stickyLanguageMaxSeconds, let sticky = stickyLanguage ?? allowed.first {
+                // Short utterance: one pass with the last language.
+                results = try await kit.transcribe(audioArray: samples, decodeOptions: decodeOptions(language: sticky))
+            } else {
+                results = try await kit.transcribe(audioArray: samples, decodeOptions: decodeOptions(language: nil))
+                if !allowed.isEmpty, let detected = results.first?.language, !allowed.contains(detected) {
+                    let probs = try await kit.detectLangauge(audioArray: samples).langProbs
+                    if let best = allowed.max(by: { (probs[$0] ?? -.infinity) < (probs[$1] ?? -.infinity) }) {
+                        Log.info("Whisper detected '\(detected)' (not allowed); re-decoding as '\(best)'")
+                        results = try await kit.transcribe(audioArray: samples, decodeOptions: decodeOptions(language: best))
+                    }
+                }
+                if let language = results.first?.language, allowed.isEmpty || allowed.contains(language),
+                   results.contains(where: { !$0.text.trimmingCharacters(in: .whitespaces).isEmpty }) {
+                    stickyLanguage = language
                 }
             }
         } else {
