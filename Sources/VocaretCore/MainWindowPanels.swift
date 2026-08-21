@@ -191,7 +191,7 @@ struct CoachView: View {
             StatCard(title: L("Filler words"), value: String(format: "%.1f%%", report.fillerRate),
                      detail: report.topFillers.prefix(3).joined(separator: ", ").isEmpty ? "of all words" : report.topFillers.prefix(3).joined(separator: ", "), symbol: "ellipsis.bubble")
             StatCard(title: L("Sentence length"), value: String(format: "%.0f", report.averageSentenceLength), detail: "words on average", symbol: "text.alignleft")
-            StatCard(title: L("Vocabulary"), value: String(format: "%.0f%%", report.vocabularyRichness * 100), detail: "unique words", symbol: "character.book.closed")
+            StatCard(title: L("Vocabulary"), value: String(format: "%.0f%%", report.vocabularyRichness * 100), detail: L("distinct words per 100"), symbol: "character.book.closed")
             StatCard(title: L("Pace"), value: report.averageWPM > 0 ? "\(Int(report.averageWPM))" : "—", detail: "words per minute", symbol: "gauge.with.dots.needle.50percent")
         }
     }

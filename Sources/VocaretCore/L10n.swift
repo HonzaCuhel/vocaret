@@ -109,7 +109,7 @@ public enum L10n {
         "Custom: ": "Vlastní: ",
         "Available when running the built Vocaret.app (scripts/build_app.sh).": "Dostupné při spuštění sestavené Vocaret.app (scripts/build_app.sh).",
         "macOS is waiting for your approval in System Settings → General → Login Items.": "macOS čeká na tvé schválení v Nastavení systému → Obecné → Položky přihlášení.",
-        "Open…": "Otevřít…",
+        "Open…": "Otevřít…", "distinct words per 100": "různých slov ze 100",
         "is already the meeting shortcut — choose a different one.": "už je zkratka pro schůzky — zvol jinou.",
         "is already the dictation shortcut — choose a different one.": "už je zkratka pro diktování — zvol jinou.",
     ]

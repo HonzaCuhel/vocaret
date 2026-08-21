@@ -16,13 +16,19 @@ public actor ParakeetEngine {
     private var loadTask: Task<AsrManager, Error>?
 
     public var isReady: Bool { manager != nil }
+    public static let modelFolderName = "parakeet-tdt-0.6b-v3"
+    /// What a dictation record stores as its `model`.
+    public static let modelLabel = "parakeet-tdt-0.6b-v3"
 
     private func ensureLoaded() async throws -> AsrManager {
         if let manager { return manager }
         if let loadTask { return try await loadTask.value }
         let task = Task<AsrManager, Error> {
             Log.info("Loading Parakeet TDT v3…")
-            let dir = SettingsStore.shared.modelsDir.appendingPathComponent("parakeet", isDirectory: true)
+            // FluidAudio materializes the repo as <parent>/<repo name> and checks
+            // for existing files at exactly this path — any other name would
+            // re-list the Hub on every load.
+            let dir = SettingsStore.shared.modelsDir.appendingPathComponent(Self.modelFolderName, isDirectory: true)
             let models = try await AsrModels.downloadAndLoad(to: dir, version: .v3)
             let manager = AsrManager(config: .default)
             try await manager.loadModels(models)

@@ -37,7 +37,7 @@ they are fetched from their original source at runtime.
 the Core ML conversion Vocaret downloads (~500 MB, only if you pick Parakeet in
 Settings → Speech engine) is hosted at
 [FluidInference/parakeet-tdt-0.6b-v3-coreml](https://huggingface.co/FluidInference/parakeet-tdt-0.6b-v3-coreml)
-and stored in `~/Library/Application Support/Vocaret/Models/parakeet`. Not
+and stored in `~/Library/Application Support/Vocaret/Models/parakeet-tdt-0.6b-v3`. Not
 redistributed by Vocaret.
 
 ## Optional, installed by the user (not distributed with Vocaret)

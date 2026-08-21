@@ -4,6 +4,8 @@ import WhisperKit
 /// Serialized wrapper around WhisperKit. Loads the configured model once
 /// (falling back to a smaller one on failure), keeps it warm, and exposes
 /// simple string/segment transcription for the rest of the app.
+public enum TranscriberError: Error { case engineNotLoaded }
+
 public actor Transcriber {
     public static let shared = Transcriber()
 
@@ -20,14 +22,17 @@ public actor Transcriber {
     private var loadTask: Task<WhisperKit, Error>?
     private var unloadTask: Task<Void, Never>?
 
-    public var isReady: Bool { whisper != nil }
+    public var isReady: Bool {
+        get async { usingParakeet ? await ParakeetEngine.shared.isReady : whisper != nil }
+    }
 
     /// Called at app launch so the first dictation has no model-load latency.
     public func preload() async {
         if SettingsStore.shared.asrEngine == "parakeet" {
             await ParakeetEngine.shared.preload()
+        } else {
+            _ = try? await ensureLoaded()
         }
-        _ = try? await ensureLoaded()
     }
 
     public func unload() {
@@ -35,6 +40,15 @@ public actor Transcriber {
         unloadTask = nil
         whisper = nil
         Log.info("Whisper model unloaded")
+        Task { await ParakeetEngine.shared.unload() }
+    }
+
+    private var usingParakeet: Bool { SettingsStore.shared.asrEngine == "parakeet" }
+
+    /// Whisper is only loaded on the Whisper path — Parakeet users should not
+    /// pay for (or download) a second model.
+    private func engineIfWhisper() async throws -> WhisperKit? {
+        usingParakeet ? nil : try await ensureLoaded()
     }
 
     /// Dictation path: 16 kHz mono samples in, plain text out.
@@ -45,7 +59,7 @@ public actor Transcriber {
     public func transcribe(samples: [Float]) async throws -> String {
         // Whisper hallucinates on near-empty audio; skip clips under 0.3 s.
         guard samples.count > Int(MicRecorder.whisperSampleRate * 0.3) else { return "" }
-        let kit = try await ensureLoaded()
+        let kit = try await engineIfWhisper()
         defer { scheduleUnloadIfConfigured() }
 
         let windowSamples = Int(MicRecorder.whisperSampleRate * 30)
@@ -53,25 +67,27 @@ public actor Transcriber {
             // Whisper hallucinates on silence ("Titulky vytvořil JohnyX.",
             // "Thank you." …) — only decode if the VAD finds actual speech.
             guard !UtteranceChunker().chunks(in: samples).isEmpty else { return "" }
-            let segments = try await transcribeChunk(kit, samples, offset: 0)
+            let segments = try await transcribeChunk(kit, samples, offset: 0, allowSticky: true)
             return segments.map(\.text).joined(separator: " ")
         }
-        let segments = try await transcribeChunked(kit, samples)
+        let segments = try await transcribeChunked(kit, samples, allowSticky: true)
         return segments.map(\.text).joined(separator: " ")
     }
 
     /// Meeting path: audio file in, timestamped segments out. Always chunked
-    /// per utterance so bilingual conversations keep both languages.
+    /// per utterance so bilingual conversations keep both languages — and
+    /// every chunk is detected on its own (no sticky language: a one-word
+    /// "Yes" after a Czech turn must not be decoded as Czech).
     public func transcribe(fileURL: URL) async throws -> [SpokenSegment] {
-        let kit = try await ensureLoaded()
+        let kit = try await engineIfWhisper()
         defer { scheduleUnloadIfConfigured() }
         let samples = try AudioProcessor.loadAudioAsFloatArray(fromPath: fileURL.path)
-        return try await transcribeChunked(kit, samples)
+        return try await transcribeChunked(kit, samples, allowSticky: false)
     }
 
     // MARK: - Chunked / language-aware decoding
 
-    private func transcribeChunked(_ kit: WhisperKit, _ samples: [Float]) async throws -> [SpokenSegment] {
+    private func transcribeChunked(_ kit: WhisperKit?, _ samples: [Float], allowSticky: Bool) async throws -> [SpokenSegment] {
         let ranges = UtteranceChunker().chunks(in: samples)
         // No speech at all → no transcript. Feeding silence to Whisper only
         // yields hallucinated subtitle credits.
@@ -80,7 +96,7 @@ public actor Transcriber {
         var segments: [SpokenSegment] = []
         for range in ranges {
             let offset = Double(range.lowerBound) / MicRecorder.whisperSampleRate
-            segments += try await transcribeChunk(kit, Array(samples[range]), offset: offset)
+            segments += try await transcribeChunk(kit, Array(samples[range]), offset: offset, allowSticky: allowSticky)
         }
         return segments
     }
@@ -101,10 +117,10 @@ public actor Transcriber {
         return samples + [Float](repeating: 0, count: minimum - samples.count)
     }
 
-    private func transcribeChunk(_ kit: WhisperKit, _ rawSamples: [Float], offset: Double) async throws -> [SpokenSegment] {
+    private func transcribeChunk(_ kit: WhisperKit?, _ rawSamples: [Float], offset: Double, allowSticky: Bool) async throws -> [SpokenSegment] {
         let settings = SettingsStore.shared
         let chunkSeconds = Double(rawSamples.count) / MicRecorder.whisperSampleRate
-        if settings.asrEngine == "parakeet" {
+        if kit == nil || settings.asrEngine == "parakeet" {
             // Parakeet: no zero-padding (it hurts short clips there), one segment
             // per chunk, no per-language re-decode (not language-conditioned).
             let hint = settings.language == "auto" ? nil : settings.language
@@ -114,11 +130,15 @@ public actor Transcriber {
             guard !clean.isEmpty else { return [] }
             return [SpokenSegment(start: offset, end: offset + Double(rawSamples.count) / MicRecorder.whisperSampleRate, text: clean)]
         }
+        guard let kit else { throw TranscriberError.engineNotLoaded }
         let samples = Self.padded(rawSamples)
         var results: [TranscriptionResult]
         if settings.language == "auto" {
             let allowed = settings.autoLanguages
-            if chunkSeconds < Self.stickyLanguageMaxSeconds, let sticky = stickyLanguage ?? allowed.first {
+            // Only after a real detection in this session, and only while that
+            // language is still in the allowed set.
+            let sticky = (allowSticky && chunkSeconds < Self.stickyLanguageMaxSeconds) ? stickyLanguage : nil
+            if let sticky, allowed.isEmpty || allowed.contains(sticky) {
                 // Short utterance: one pass with the last language.
                 results = try await kit.transcribe(audioArray: samples, decodeOptions: decodeOptions(language: sticky))
             } else {

@@ -196,7 +196,7 @@ public final class DictationController {
                     text: text,
                     recordingSeconds: recordingSeconds,
                     transcriptionSeconds: Date().timeIntervalSince(transcriptionStarted),
-                    model: SettingsStore.shared.whisperModel,
+                    model: SettingsStore.shared.asrEngine == "parakeet" ? ParakeetEngine.modelLabel : SettingsStore.shared.whisperModel,
                     cleaned: SettingsStore.shared.cleanDictation
                 ))
 
