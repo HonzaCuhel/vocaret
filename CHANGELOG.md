@@ -39,6 +39,11 @@ change behaviour and defaults.
 - First Automation (Spotify/Music) prompt no longer appears mid-recording.
 - Peak-hours chart clipped the 00 and 23 bars; login toggle lied when unbundled;
   `--coach` / `--selftest` no longer kill the running app's llama-server.
+- Music paused for a dictation sometimes never resumed: players report their
+  playback state with a lag, and the resume was skipped when the state still
+  read "playing". Short dictations hit this almost every time.
+- Meeting transcripts no longer inherit the previous speaker's language for
+  short utterances; the Parakeet engine no longer loads Whisper as well.
 
 ## [0.2.0] — 2026-08-18
 
