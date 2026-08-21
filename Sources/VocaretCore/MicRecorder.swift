@@ -218,6 +218,14 @@ public final class MicRecorder {
         levelLock.unlock()
     }
 
+    /// A copy of everything captured so far, without stopping. Used to start
+    /// transcribing while the user is still holding the hotkey.
+    public func snapshot() -> [Float] {
+        sampleLock.lock()
+        defer { sampleLock.unlock() }
+        return samples
+    }
+
     /// Stops capture. Returns the accumulated 16 kHz samples (in-memory mode)
     /// or an empty array (file mode — the WAV is already on disk).
     @discardableResult

@@ -23,6 +23,13 @@ public final class DictationController {
     /// The transcribe/clean/paste job, kept so Esc can abort a slow cleanup.
     private var job: Task<Void, Never>?
 
+    /// A transcription started while the user was still holding the hotkey,
+    /// during a pause in speech. `sampleCount` is how much audio it covers, so
+    /// finish() can check that nothing was said afterwards before trusting it.
+    private var speculative: (sampleCount: Int, task: Task<String, Error>)?
+    private var speechWatcher: Task<Void, Never>?
+
+
     public init() {}
 
     /// Shorter than this and the press counts as a tap (toggle mode) rather
@@ -66,6 +73,7 @@ public final class DictationController {
         switch state {
         case .recording:
             HotkeyManager.shared.endReleaseWatch()
+            cancelSpeculation()
             _ = recorder.stop()
             MediaPauser.shared.resumeIfPaused()
             unregisterCancelHotkey()
@@ -86,6 +94,7 @@ public final class DictationController {
     /// Called on app quit while recording: stop the engine cleanly.
     public func stopForTermination() {
         guard state == .recording else { return }
+        cancelSpeculation()
         _ = recorder.stop()
         MediaPauser.shared.resumeIfPausedNow()
         state = .idle
@@ -114,6 +123,7 @@ public final class DictationController {
             }
             SoundPlayer.play(.start)
             state = .recording
+            startSpeechWatcher()
             MediaPauser.shared.pauseIfPlaying()
             // Hide the LLM cold start behind the time the user spends speaking.
             if SettingsStore.shared.cleanDictation { LLMCleaner.shared.warmUp() }
@@ -151,9 +161,60 @@ public final class DictationController {
         HUD.shared.update("Audio device changed — press the hotkey to insert")
     }
 
+    /// While recording, watch for a pause in speech and start transcribing what
+    /// we have so far. People pause before they let go of the key, so by the
+    /// time they do the text is usually already decoded — which is where the
+    /// perceived latency of a dictation actually goes.
+    private func startSpeechWatcher() {
+        speechWatcher?.cancel()
+        speechWatcher = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 150_000_000)
+                guard let self, !Task.isCancelled else { return }
+                await self.speculateIfSpeechPaused()
+            }
+        }
+    }
+
+    private func speculateIfSpeechPaused() async {
+        guard state == .recording else { return }
+        let samples = recorder.snapshot()
+        guard SpeechPause.shouldSpeculate(on: samples, alreadySpeculatedCount: speculative?.sampleCount ?? 0) else { return }
+
+        speculative?.task.cancel()
+        let rate = MicRecorder.whisperSampleRate
+        let count = samples.count
+        speculative = (count, Task.detached(priority: .userInitiated) {
+            try await Transcriber.shared.transcribe(samples: samples)
+        })
+        Log.info("Speculating on \(String(format: "%.1f", Double(count) / rate))s after a pause")
+    }
+
+    private func cancelSpeculation() {
+        speechWatcher?.cancel()
+        speechWatcher = nil
+        speculative?.task.cancel()
+        speculative = nil
+    }
+
+    /// The speculative result is only usable if the audio recorded after it was
+    /// silence — otherwise the user said something it never heard.
+    private func usableSpeculation(finalSamples: [Float]) -> Task<String, Error>? {
+        guard let speculative else { return nil }
+        guard SpeechPause.covers(speculative.sampleCount, of: finalSamples) else {
+            Log.info("Speech continued after the pause — transcribing the whole clip")
+            return nil
+        }
+        return speculative.task
+    }
+
     private func finish() {
         HotkeyManager.shared.endReleaseWatch()
+        speechWatcher?.cancel()
+        speechWatcher = nil
         let samples = recorder.stop()
+        let headStart = usableSpeculation(finalSamples: samples)
+        speculative = nil
         MediaPauser.shared.resumeIfPaused()
         let recordingSeconds = Double(samples.count) / MicRecorder.whisperSampleRate
         let transcriptionStarted = Date()
@@ -172,7 +233,12 @@ public final class DictationController {
                 job = nil
             }
             do {
-                var text = try await Transcriber.shared.transcribe(samples: samples)
+                var text: String
+                if let headStart {
+                    text = try await headStart.value
+                } else {
+                    text = try await Transcriber.shared.transcribe(samples: samples)
+                }
                 try Task.checkCancellation()
                 if text.isEmpty {
                     HUD.shared.flash("Nothing recognized")

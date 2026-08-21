@@ -16,6 +16,9 @@ public actor Transcriber {
     private var stickyLanguage: String?
     /// Below this, skip detection and trust `stickyLanguage`.
     static let stickyLanguageMaxSeconds = 3.0
+    /// How many allowed languages to try when Whisper's own pick is not one of
+    /// them. Each costs a decode, and the user may have checked twelve.
+    static let maxLanguageCandidates = 2
     /// In-flight load. Actors are reentrant at every `await`, so without this
     /// a hotkey press during the (minutes-long, first-launch) load would start
     /// a second download/CoreML load of the same model.
@@ -144,10 +147,29 @@ public actor Transcriber {
             } else {
                 results = try await kit.transcribe(audioArray: samples, decodeOptions: decodeOptions(language: nil))
                 if !allowed.isEmpty, let detected = results.first?.language, !allowed.contains(detected) {
-                    let probs = try await kit.detectLangauge(audioArray: samples).langProbs
-                    if let best = allowed.max(by: { (probs[$0] ?? -.infinity) < (probs[$1] ?? -.infinity) }) {
-                        Log.info("Whisper detected '\(detected)' (not allowed); re-decoding as '\(best)'")
-                        results = try await kit.transcribe(audioArray: samples, decodeOptions: decodeOptions(language: best))
+                    // Whisper picked a language the user does not use (a short
+                    // Czech "Ano." is happily heard as Slovak). Decode it once
+                    // per allowed language and keep whichever the model is most
+                    // confident about.
+                    //
+                    // NOT via detectLangauge(): its `langProbs` carries only the
+                    // single top-1 language — the one just rejected — so ranking
+                    // the allowed set by it always returned the first entry, i.e.
+                    // English speech was silently re-decoded as Czech.
+                    let candidates = Array(allowed.prefix(Self.maxLanguageCandidates))
+                    var best: (language: String, score: Float, results: [TranscriptionResult])?
+                    for candidate in candidates {
+                        let attempt = try await kit.transcribe(audioArray: samples, decodeOptions: decodeOptions(language: candidate))
+                        // Mean per-segment avgLogprob: how confident Whisper is
+                        // that this audio is that language.
+                        let segments = attempt.flatMap(\.segments).filter { !$0.text.trimmingCharacters(in: .whitespaces).isEmpty }
+                        guard !segments.isEmpty else { continue }
+                        let score = segments.map(\.avgLogprob).reduce(0, +) / Float(segments.count)
+                        if score > (best?.score ?? -.infinity) { best = (candidate, score, attempt) }
+                    }
+                    if let best {
+                        Log.info("Whisper detected '\(detected)' (not allowed); using '\(best.language)' (avgLogProb \(best.score))")
+                        results = best.results
                     }
                 }
                 if let language = results.first?.language, allowed.isEmpty || allowed.contains(language),
