@@ -398,26 +398,62 @@ public enum SelfTest {
             emit("[media] nothing to test — start Spotify or Music and play something, then rerun")
             return
         }
-        for p in players { emit("[media] \(p.name) state before: \(pauser.playerState(p) ?? "unknown (permission denied?)")") }
-        let playing = players.filter { pauser.playerState($0) == "playing" }
+        for p in players {
+            emit("[media] \(p.name) automationStatus=\(pauser.automationStatus(p)) state before: \(pauser.playerState(p) ?? "unknown (permission denied?)")")
+        }
+        var playing = players.filter { pauser.playerState($0) == "playing" }
+        // Self-contained: start playback ourselves (we have the app's TCC
+        // identity), remember it, and leave the machine quiet afterwards.
+        var startedByTest: [MediaPauser.Player] = []
+        if playing.isEmpty, let first = players.first {
+            emit("[media] nothing playing — starting \(first.name) for the test")
+            pauser.send("play", to: first)
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            playing = players.filter { pauser.playerState($0) == "playing" }
+            startedByTest = playing
+        }
+        defer { for p in startedByTest { pauser.send("pause", to: p) } }
         guard !playing.isEmpty else {
-            emit("[media] no player is playing right now — press play in \(players[0].name) and rerun for the full check")
+            emit("[media] no player is playing (couldn't start one) — press play in \(players[0].name) and rerun")
             return
         }
         let paused = await withCheckedContinuation { cont in pauser.pauseIfPlaying { cont.resume(returning: $0) } }
-        try? await Task.sleep(nanoseconds: 700_000_000)
+        let pausedSettled = await settles(playing, to: "paused", pauser: pauser)
         for p in playing { emit("[media] \(p.name) state after pause: \(pauser.playerState(p) ?? "?")") }
         check(!paused.isEmpty, "[media] pauseIfPlaying paused the playing app(s)")
-        check(playing.allSatisfy { pauser.playerState($0) == "paused" }, "[media] player reports 'paused' during recording")
+        check(pausedSettled, "[media] player reports 'paused' during recording")
         try? await Task.sleep(nanoseconds: 1_500_000_000)
         let resumed = await withCheckedContinuation { cont in pauser.resumeIfPaused { cont.resume(returning: $0) } }
-        try? await Task.sleep(nanoseconds: 700_000_000)
+        let playingSettled = await settles(playing, to: "playing", pauser: pauser)
         for p in playing { emit("[media] \(p.name) state after resume: \(pauser.playerState(p) ?? "?")") }
         check(!resumed.isEmpty, "[media] resumeIfPaused resumed what we paused")
-        check(playing.allSatisfy { pauser.playerState($0) == "playing" }, "[media] player is playing again")
+        check(playingSettled, "[media] player is playing again")
         // And the guard: resuming twice must be a no-op (nothing tracked).
         let again = await withCheckedContinuation { cont in pauser.resumeIfPaused { cont.resume(returning: $0) } }
         check(again.isEmpty, "[media] second resume is a no-op")
+        // Regression: a dictation shorter than the pause round-trip enqueues
+        // the resume immediately behind the pause. The player then still
+        // reports (stale) "playing"; the old guard skipped the resume and
+        // music stayed paused forever.
+        pauser.pauseIfPlaying()
+        let rapid = await withCheckedContinuation { cont in pauser.resumeIfPaused { cont.resume(returning: $0) } }
+        let rapidSettled = await settles(playing, to: "playing", pauser: pauser)
+        check(!rapid.isEmpty, "[media] rapid pause→resume still resumes (stale-state race)")
+        check(rapidSettled, "[media] player is playing after the rapid cycle")
+    }
+
+    /// Players report `player state` with a lag of up to a second or two after
+    /// a command lands (observed on Spotify), so a single read right after a
+    /// pause/play proves nothing — poll until it settles.
+    private static func settles(
+        _ players: [MediaPauser.Player], to expected: String, pauser: MediaPauser, seconds: Double = 6
+    ) async -> Bool {
+        let deadline = Date().addingTimeInterval(seconds)
+        while Date() < deadline {
+            if players.allSatisfy({ pauser.playerState($0) == expected }) { return true }
+            try? await Task.sleep(nanoseconds: 300_000_000)
+        }
+        return false
     }
 
     /// Drives the recorder pill through its phases with a synthetic level and

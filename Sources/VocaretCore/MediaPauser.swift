@@ -66,9 +66,20 @@ public final class MediaPauser: @unchecked Sendable {
     /// noErr = granted, errAEEventWouldRequireUserConsent = macOS has not asked
     /// yet, errAEEventNotPermitted = denied.
     func automationStatus(_ player: Player) -> OSStatus {
-        guard let target = NSAppleEventDescriptor(bundleIdentifier: player.bundleID).aeDesc else { return -1 }
+        // Keep the descriptor alive: `aeDesc` is an interior pointer, and the
+        // temporary would be released before the AEDesc is read.
+        let descriptor = NSAppleEventDescriptor(bundleIdentifier: player.bundleID)
+        guard let target = descriptor.aeDesc else { return -1 }
         var address = target.pointee
-        return AEDeterminePermissionToAutomateTarget(&address, typeWildCard, typeWildCard, false)
+        let status = AEDeterminePermissionToAutomateTarget(&address, typeWildCard, typeWildCard, false)
+        withExtendedLifetime(descriptor) {}
+        return status
+    }
+
+    /// Self-test hook: send a bare command ("play", "pause") to a player.
+    @discardableResult
+    func send(_ verb: String, to player: Player) -> Bool {
+        run("tell application \"\(player.name)\" to \(verb)") != nil
     }
 
     /// Players the user has not been asked about yet: skipped mid-recording
@@ -92,8 +103,20 @@ public final class MediaPauser: @unchecked Sendable {
                     ready.append(player)
                 }
             }
-            for player in ready where playerState(player) == "playing" {
-                if run("tell application \"\(player.name)\" to pause") != nil { paused.append(player) }
+            // One osascript per player: the state check and the pause execute
+            // together, so a played-then-paused player can never be recorded
+            // wrongly, and the round-trip cost is paid once, not twice.
+            for player in ready {
+                switch run(Self.pauseIfPlayingScript(player.name))?.trimmingCharacters(in: .whitespacesAndNewlines) {
+                case "paused":
+                    paused.append(player)
+                case "not-playing", "":
+                    break
+                default:
+                    // Persisted (warning) on purpose: if the pause landed but
+                    // the reply was lost, music stays paused with no auto-resume.
+                    Log.warn("Pause check for \(player.name) failed — it will NOT be auto-resumed")
+                }
             }
             pausedByUs = paused
             if !paused.isEmpty { Log.info("Paused \(paused.map(\.name).joined(separator: ", ")) for recording") }
@@ -132,11 +155,46 @@ public final class MediaPauser: @unchecked Sendable {
         for player in players {
             // Do not launch a player the user quit meanwhile, and do not
             // override something they started playing themselves.
-            guard stillRunning.contains(player.bundleID), playerState(player) == "paused" else { continue }
-            if run("tell application \"\(player.name)\" to play") != nil { resumed.append(player) }
+            guard stillRunning.contains(player.bundleID) else {
+                Log.warn("Not resuming \(player.name): no longer running"); continue
+            }
+            // Single script: skip only a player that left playback entirely
+            // (stopped — `play` could start something unrelated). A stale
+            // "playing" right after our own pause is fine: play is a no-op on
+            // a genuinely playing player.
+            switch run(Self.resumeUnlessStoppedScript(player.name))?.trimmingCharacters(in: .whitespacesAndNewlines) {
+            case "playing":
+                resumed.append(player)
+            case "stopped":
+                Log.warn("Not resuming \(player.name): playback is stopped")
+            default:
+                Log.warn("Resume command for \(player.name) failed")
+            }
         }
         if !resumed.isEmpty { Log.info("Resumed \(resumed.map(\.name).joined(separator: ", "))") }
         return resumed
+    }
+
+    static func pauseIfPlayingScript(_ name: String) -> String {
+        """
+        tell application "\(name)"
+            if player state is playing then
+                pause
+                return "paused"
+            end if
+            return "not-playing"
+        end tell
+        """
+    }
+
+    static func resumeUnlessStoppedScript(_ name: String) -> String {
+        """
+        tell application "\(name)"
+            if player state is stopped then return "stopped"
+            play
+            return "playing"
+        end tell
+        """
     }
 
     /// "playing" | "paused" | "stopped" | nil (not scriptable / permission denied).
@@ -155,8 +213,22 @@ public final class MediaPauser: @unchecked Sendable {
         let out = Pipe(), err = Pipe()
         process.standardOutput = out
         process.standardError = err
+        let started = Date()
         do { try process.run() } catch { return nil }
-        process.waitUntilExit()
+        // A hung osascript (e.g. a consent dialog the user never answers)
+        // would otherwise block the serial queue forever — and with it every
+        // future pause AND resume.
+        let deadline = Date().addingTimeInterval(10)
+        while process.isRunning, Date() < deadline {
+            usleep(50_000)
+        }
+        if process.isRunning {
+            process.terminate()
+            Log.warn("osascript timed out after 10 s — killed")
+            return nil
+        }
+        let elapsed = Date().timeIntervalSince(started)
+        if elapsed > 2 { Log.warn("osascript took \(String(format: "%.1f", elapsed)) s") }
         let stdout = String(decoding: out.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
         if process.terminationStatus != 0 {
             let stderr = String(decoding: err.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)

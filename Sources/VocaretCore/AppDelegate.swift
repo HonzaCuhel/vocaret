@@ -14,6 +14,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         LLMCleaner.shared.reapStaleServer()
         if SettingsStore.shared.cleanDictation { LLMCleaner.shared.warmUp() }
         MediaPauser.shared.primePermissions()
+        registerDebugIPC()
 
         // First launch: open the window so a new user sees what this is and
         // where the shortcut lives, instead of an unexplained menu-bar glyph.
@@ -44,6 +45,24 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             // stall the launch path) nag about the permission that makes
             // dictation actually appear where the cursor is.
             warnIfAccessibilityMissing()
+        }
+    }
+
+    /// Debug-only (defaults write com.jancuhel.vocaret debugIPC -bool YES):
+    /// lets a local test drive dictation exactly like the hotkey would.
+    /// Off by default — anyone local can post distributed notifications.
+    private func registerDebugIPC() {
+        guard UserDefaults.standard.bool(forKey: "debugIPC") else { return }
+        Log.warn("debugIPC enabled — dictation can be toggled by local processes")
+        DistributedNotificationCenter.default().addObserver(
+            forName: Notification.Name("com.jancuhel.vocaret.debug.toggleDictation"), object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.dictation.toggle() }
+        }
+        DistributedNotificationCenter.default().addObserver(
+            forName: Notification.Name("com.jancuhel.vocaret.debug.mediaPlay"), object: nil, queue: nil
+        ) { _ in
+            for player in MediaPauser.shared.runningPlayers() { MediaPauser.shared.send("play", to: player) }
         }
     }
 
