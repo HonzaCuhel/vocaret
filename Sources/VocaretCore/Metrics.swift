@@ -163,10 +163,12 @@ public struct SpeechAnalysis: Equatable, Sendable {
         return analysis
     }
 
-    /// Sentence boundaries: `.`, `!` or `?` followed by whitespace and a
-    /// capital letter, or the end of the text. Splitting on every period
-    /// would chop Czech ordinals ("18. srpna"), abbreviations ("např.") and
-    /// decimals ("2.5") into one-word "sentences".
+    /// Sentence boundaries: `.`, `!` or `?` (plus any closing quote) followed
+    /// by whitespace and something that can start a sentence — a capital
+    /// letter, an opening quote, or a digit ("5 minut.", "18. srpna jedeme.")
+    /// — or the end of the text. Splitting on every period instead would chop
+    /// Czech ordinals ("v 9. patře"), abbreviations ("např.") and decimals
+    /// ("2.5", never followed by whitespace) into one-word "sentences".
     static func splitSentences(_ text: String) -> [String] {
         let ns = text as NSString
         let matches = sentenceBoundary.matches(in: text, range: NSRange(location: 0, length: ns.length))
@@ -180,7 +182,8 @@ public struct SpeechAnalysis: Equatable, Sendable {
         if start < ns.length { sentences.append(ns.substring(from: start)) }
         return sentences
     }
-    private static let sentenceBoundary = try! NSRegularExpression(pattern: #"[.!?]+(?=\s+\p{Lu}|\s*$)"#)
+    private static let sentenceBoundary = try! NSRegularExpression(
+        pattern: #"[.!?]+[”“»"')\]]*(?=\s+[\p{Lu}\p{Nd}„“"'(\[]|\s*$)"#)
 
     /// Mean type/token ratio over sliding `window`-token windows (MATTR). Raw
     /// TTR falls as the corpus grows (Heaps' law), so a heavy user would be

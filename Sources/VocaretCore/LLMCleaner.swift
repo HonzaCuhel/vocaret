@@ -85,7 +85,13 @@ public actor LLMCleaner {
     /// start hides that anyway. So the model sleeps quickly, and the process
     /// itself is only killed after a long idle (or on quit).
     private var sleepAfterSeconds: Int { SettingsStore.shared.cleanDictation ? 300 : 120 }
-    private let idleTimeout: TimeInterval = 3600
+    /// True once a server that accepted `--sleep-idle-seconds` became healthy.
+    /// Builds that reject it never free the model on their own, so there the
+    /// process itself must still be killed after a short idle.
+    private var serverCanSleep = false
+    private var idleTimeout: TimeInterval {
+        serverCanSleep ? 3600 : (SettingsStore.shared.cleanDictation ? 600 : 120)
+    }
     private let startupTimeout: TimeInterval = 90
 
     public init() {}
@@ -408,17 +414,19 @@ public actor LLMCleaner {
             "-ngl", "99",
             "--jinja",
         ]
-        // One slot: we never send concurrent requests, and the default "auto"
-        // allocates four 16k slots. Flash attention is ~10 % faster on Metal.
-        // Sleep frees the model's RAM between sessions. Older llama.cpp builds
-        // reject these flags and exit immediately — then retry without them.
+        // Flash attention is ~10 % faster on Metal; sleep frees the model's RAM
+        // between sessions. The slot count is left to llama.cpp: slots share one
+        // unified KV cache, so extra slots cost no memory and let a short
+        // dictation cleanup run alongside a long meeting-structuring request.
+        // Older llama.cpp builds reject these flags and exit immediately — then
+        // retry without them.
         let tuningArguments = [
-            "-np", "1",
             "-fa", "on",
             "--sleep-idle-seconds", String(sleepAfterSeconds),
         ]
 
         for arguments in [baseArguments + tuningArguments, baseArguments] {
+            let isTuned = arguments.count > baseArguments.count
             let process = Process()
             process.executableURL = URL(fileURLWithPath: serverPath)
             process.arguments = arguments
@@ -431,7 +439,8 @@ public actor LLMCleaner {
             var exitedOnItsOwn = false
             while Date() < deadline {
                 if await healthy() {
-                    Log.info("llama-server ready")
+                    serverCanSleep = isTuned
+                    Log.info("llama-server ready\(isTuned ? "" : " (basic flags — no sleep support)")")
                     return
                 }
                 if !process.isRunning {
@@ -440,8 +449,13 @@ public actor LLMCleaner {
                 }
                 try? await Task.sleep(nanoseconds: 100_000_000)
             }
+            // Retry only when the child died on its own: a build that rejects
+            // the tuning flags exits immediately. A SIGTERM means we (quit, or
+            // the idle timer) killed it — respawning then would leave an
+            // orphaned server behind a quitting app.
+            let killedBySignal = !process.isRunning && process.terminationReason == .uncaughtSignal
             processBox.terminate()
-            if exitedOnItsOwn, arguments.count > baseArguments.count {
+            if exitedOnItsOwn, isTuned, !killedBySignal {
                 Log.warn("llama-server rejected tuning flags — retrying with the basic ones")
                 continue
             }

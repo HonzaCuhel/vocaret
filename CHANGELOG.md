@@ -22,7 +22,7 @@ change behaviour and defaults.
   instead of three (one-word dictation 2.2 s → 0.8 s).
 - AI cleanup feels ~3× faster: the model is warmed when a recording starts, and
   `llama-server` now sleeps (80 MB resident) instead of being killed, waking in
-  ~1 s. Launch flags: `-np 1 -fa on --sleep-idle-seconds`.
+  ~1 s. Launch flags: `-fa on --sleep-idle-seconds`.
 - Coach vocabulary metric is a moving-average type/token ratio (MATTR), so it
   no longer falls the more you dictate; sentence statistics no longer break on
   Czech ordinals/abbreviations/decimals.
@@ -44,6 +44,11 @@ change behaviour and defaults.
   read "playing". Short dictations hit this almost every time.
 - Meeting transcripts no longer inherit the previous speaker's language for
   short utterances; the Parakeet engine no longer loads Whisper as well.
+- Sentences that start with a number ("5 minut.") or a quote are counted as
+  sentences again in the coach's statistics.
+- On llama.cpp builds too old for sleep support, the model is freed after a few
+  minutes again instead of staying resident for an hour.
+- The menu bar re-localises when you change the interface language.
 
 ## [0.2.0] — 2026-08-18
 

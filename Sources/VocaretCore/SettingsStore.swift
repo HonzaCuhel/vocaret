@@ -110,8 +110,11 @@ public final class SettingsStore: @unchecked Sendable {
     }
 
     /// "whisper" (default) | "parakeet" (experimental, faster, no language conditioning)
+    /// "whisper" (default) or "parakeet". Anything else — a typo via
+    /// `defaults write` or `--engine` — falls back to Whisper, so the engine in
+    /// use always matches what Settings shows.
     public var asrEngine: String {
-        get { defaults.string(forKey: Key.asrEngine) ?? "whisper" }
+        get { defaults.string(forKey: Key.asrEngine)?.lowercased() == "parakeet" ? "parakeet" : "whisper" }
         set { defaults.set(newValue, forKey: Key.asrEngine) }
     }
 

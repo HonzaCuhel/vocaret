@@ -29,6 +29,18 @@ final class SpeechAnalysisTests: XCTestCase {
         XCTAssertEqual(a.longestSentenceWords, 13)
     }
 
+    func testSentencesStartingWithADigitOrQuoteStillSplit() {
+        // "5 minut." and a quoted sentence must not be swallowed into the
+        // previous one just because they do not start with a capital letter.
+        let a = SpeechAnalysis.analyze(texts: ["Trvalo to dlouho. 5 minut. Pak nic."])
+        XCTAssertEqual(a.averageSentenceLength, 2.33, accuracy: 0.01) // 3 + 2 + 2 tokens
+        let b = SpeechAnalysis.analyze(texts: ["Řekl to. „Ano.“ Pak odešel."])
+        XCTAssertEqual(b.longestSentenceWords, 2)
+        // …and an ordinal still does not end a sentence.
+        let c = SpeechAnalysis.analyze(texts: ["Bylo to fajn. 18. srpna jedeme."])
+        XCTAssertEqual(c.averageSentenceLength, 3.0, accuracy: 0.01) // "Bylo to fajn" + "18 srpna jedeme"
+    }
+
     func testVocabularyRichnessDoesNotFallWithCorpusSize() {
         // The same 50-word vocabulary dictated 2× vs 40× must score the same:
         // raw type/token ratio would halve and then collapse, punishing heavy users.

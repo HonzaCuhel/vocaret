@@ -86,7 +86,10 @@ public final class MainWindowController: NSObject, NSWindowDelegate {
             window.delegate = self
             self.window = window
             languageObserver = NotificationCenter.default.addObserver(forName: .vocaretUILanguageChanged, object: nil, queue: .main) { [weak self] _ in
-                Task { @MainActor in self?.rebuildContent() }
+                Task { @MainActor in
+                    MainWindowController.installMainMenu() // the menu bar's titles are L() too
+                    self?.rebuildContent()
+                }
             }
         }
         NSApp.setActivationPolicy(.regular)
