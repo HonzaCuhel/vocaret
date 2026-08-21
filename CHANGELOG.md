@@ -20,6 +20,9 @@ change behaviour and defaults.
 - Uniform title-bar height on every tab (one window-owned toolbar).
 - Short dictations (< 3 s) reuse the last detected language — one encoder pass
   instead of three (one-word dictation 2.2 s → 0.8 s).
+- Dictation now starts transcribing during a pause in speech, while the hotkey
+  is still held, so on release the text is often already decoded. If you carry
+  on talking, the early transcript is discarded and the whole clip is decoded.
 - AI cleanup feels ~3× faster: the model is warmed when a recording starts, and
   `llama-server` now sleeps (80 MB resident) instead of being killed, waking in
   ~1 s. Launch flags: `-fa on --sleep-idle-seconds`.
@@ -49,6 +52,11 @@ change behaviour and defaults.
 - On llama.cpp builds too old for sleep support, the model is freed after a few
   minutes again instead of staying resident for an hour.
 - The menu bar re-localises when you change the interface language.
+- English speech was silently re-decoded as Czech whenever Whisper's own guess
+  fell outside your auto-detect set (a real bug: the probability table it was
+  ranked by only ever held the language that had just been rejected).
+- Product names the recogniser splits in two ("git hub") are rejoined from your
+  vocabulary ("GitHub").
 
 ## [0.2.0] — 2026-08-18
 
