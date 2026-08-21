@@ -256,11 +256,11 @@ struct SettingsView: View {
                     }
                 }
                 Picker(L("Speech engine"), selection: $settings.asrEngine) {
-                    Text("Whisper large-v3-turbo — best for Czech, mixed languages").tag("whisper")
-                    Text("Parakeet TDT v3 — faster, experimental").tag("parakeet")
+                    Text("Whisper large-v3-turbo — best for Czech mixed with English terms").tag("whisper")
+                    Text("Parakeet TDT v3 — about 10× faster (0.15 s vs 1.2 s)").tag("parakeet")
                 }
                 if settings.asrEngine == "parakeet" {
-                    Text(L("Parakeet has no language control: it can drift to English on short or unclear Czech. Try it, compare, switch back if it misbehaves. Downloads ~500 MB on first use."))
+                    Text(L("Measured on Czech dictations: same text as Whisper on plain Czech, but it mishears English terms inside Czech speech (\"pull request\", \"Slack\"). Downloads ~500 MB on first use."))
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 Picker(L("Speech model"), selection: $settings.whisperModel) {

@@ -63,7 +63,7 @@ public enum L10n {
         "Language": "Jazyk", "Transcribe": "Přepisovat", "Auto-detect": "Automaticky",
         "Auto-detect chooses between:": "Automatická detekce vybírá mezi:",
         "Speech model": "Model řeči", "Speech engine": "Rozpoznávač řeči",
-        "Parakeet has no language control: it can drift to English on short or unclear Czech. Try it, compare, switch back if it misbehaves. Downloads ~500 MB on first use.": "Parakeet nemá řízení jazyka: u krátké nebo nezřetelné češtiny může sklouznout do angličtiny. Vyzkoušej, porovnej, případně přepni zpět. Při prvním použití stáhne ~500 MB.",
+        "Measured on Czech dictations: same text as Whisper on plain Czech, but it mishears English terms inside Czech speech (\"pull request\", \"Slack\"). Downloads ~500 MB on first use.": "Změřeno na českých diktátech: na čisté češtině dává stejný text jako Whisper, ale komolí anglické termíny v české řeči („pull request“, „Slack“). Při prvním použití stáhne ~500 MB.",
         "A new model downloads on next launch. Smaller models are much worse at Czech.": "Nový model se stáhne při příštím spuštění. Menší modely jsou v češtině výrazně horší.",
         "AI cleanup (local LLM)": "AI úprava (lokální LLM)", "Clean dictation with AI (adds ~1–2 s)": "Upravit diktát pomocí AI (přidá ~1–2 s)",
         "Structure meeting notes with AI": "Strukturovat poznámky ze schůzek pomocí AI",

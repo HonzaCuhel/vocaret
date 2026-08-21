@@ -112,6 +112,34 @@ final class VocabularyTests: XCTestCase {
         XCTAssertEqual(TranscriptCorrector.apply("Zeptej se Codexx.", vocabulary: v), "Zeptej se Codex.")
     }
 
+    // MARK: - Terms the recogniser split in two
+
+    func testRejoinsSplitTerms() {
+        // Parakeet in particular splits English product names inside Czech
+        // speech: "git hub", "whisper kit". The user's own vocabulary says
+        // what the word should be.
+        let v = vocabulary(terms: ["GitHub", "WhisperKit"])
+        XCTAssertEqual(TranscriptCorrector.apply("Pushni to na git hub.", vocabulary: v),
+                       "Pushni to na GitHub.")
+        XCTAssertEqual(TranscriptCorrector.apply("Použij whisper kit dneska.", vocabulary: v),
+                       "Použij WhisperKit dneska.")
+    }
+
+    func testDoesNotJoinWordsThatOnlyLookAdjacent() {
+        let v = vocabulary(terms: ["GitHub"])
+        // Not adjacent, and the join is not the term.
+        XCTAssertEqual(TranscriptCorrector.apply("git a hub", vocabulary: v), "git a hub")
+        // A near miss is NOT enough to join two ordinary Czech words.
+        let codex = vocabulary(terms: ["Codex"])
+        XCTAssertEqual(TranscriptCorrector.apply("co dexu tam je", vocabulary: codex), "co dexu tam je")
+    }
+
+    func testRejoiningKeepsSurroundingPunctuation() {
+        let v = vocabulary(terms: ["GitHub"])
+        XCTAssertEqual(TranscriptCorrector.apply("Je to na git hub, že?", vocabulary: v),
+                       "Je to na GitHub, že?")
+    }
+
     func testLearningIgnoresRewritesThatChangeWordCount() {
         let v = Vocabulary(persistence: nil)
         // The LLM removed a filler word — positions no longer line up, so

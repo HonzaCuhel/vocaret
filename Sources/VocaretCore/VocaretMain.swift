@@ -64,7 +64,13 @@ public enum VocaretMain {
             if let engineIndex = arguments.firstIndex(of: "--engine"), arguments.count > engineIndex + 1 {
                 SettingsStore.shared.asrEngine = arguments[engineIndex + 1]
             }
-            runDictationBench(path: arguments[flagIndex + 1], repeats: repeats)
+            // Every path after the flag, so a whole test set loads the model once.
+            var paths: [String] = []
+            var cursor = flagIndex + 1
+            while cursor < arguments.count, !arguments[cursor].hasPrefix("--") {
+                paths.append(arguments[cursor]); cursor += 1
+            }
+            runDictationBench(paths: paths, repeats: repeats)
             return
         }
 
@@ -75,16 +81,17 @@ public enum VocaretMain {
         app.run()
     }
 
-    private static func runDictationBench(path: String, repeats: Int) {
+    private static func runDictationBench(paths: [String], repeats: Int) {
         Task.detached {
             do {
+                await Transcriber.shared.preload()
+                for path in paths {
                 let samples = try AudioProcessor.loadAudioAsFloatArray(fromPath: path)
                 let seconds = Double(samples.count) / MicRecorder.whisperSampleRate
-                await Transcriber.shared.preload()
                 let cleanup = SettingsStore.shared.cleanDictation
                 FileHandle.standardError.write(Data(String(
-                    format: "clip=%.1fs engine=%@ cleanup=%@ repeats=%d\n",
-                    seconds, SettingsStore.shared.asrEngine, cleanup ? "on" : "off", repeats).utf8))
+                    format: "clip=%@ %.1fs engine=%@ cleanup=%@\n",
+                    (path as NSString).lastPathComponent, seconds, SettingsStore.shared.asrEngine, cleanup ? "on" : "off").utf8))
                 // Where would the early-transcription trigger fire if this clip
                 // had been spoken live? Replays the buffer in 250 ms steps.
                 var firedAt: [Double] = []
@@ -113,7 +120,9 @@ public enum VocaretMain {
                     let started = Date()
                     let raw = try await Transcriber.shared.transcribe(samples: samples)
                     let transcribed = Date()
-                    let text = cleanup ? await LLMCleaner.shared.cleanDictation(raw) : raw
+                    var text = cleanup ? await LLMCleaner.shared.cleanDictation(raw) : raw
+                    // Same order as the real dictation path.
+                    text = TranscriptCorrector.apply(text, vocabulary: Vocabulary.shared)
                     let done = Date()
                     FileHandle.standardError.write(Data(String(
                         format: "run %d: asr=%.2fs cleanup=%.2fs total=%.2fs | %@\n",
@@ -122,6 +131,7 @@ public enum VocaretMain {
                         done.timeIntervalSince(transcribed),
                         done.timeIntervalSince(started),
                         text.replacingOccurrences(of: "\n", with: " ")).utf8))
+                }
                 }
                 LLMCleaner.shared.terminateOwnedServer()
                 exit(0)

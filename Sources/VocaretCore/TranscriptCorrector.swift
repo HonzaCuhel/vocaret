@@ -15,6 +15,8 @@ public enum TranscriptCorrector {
         var canonical: [String: String] = [:]
         for term in terms { canonical[term.lowercased()] = term }
 
+        let text = rejoinSplitTerms(text, canonical: canonical)
+
         var result = ""
         result.reserveCapacity(text.count)
         var current = ""
@@ -74,6 +76,46 @@ public enum TranscriptCorrector {
             if let best { return best.term + trailing }
         }
         return word
+    }
+
+    /// Speech recognisers split multi-word product names inside foreign
+    /// speech — Parakeet writes "git hub" and "whisper kit" in a Czech
+    /// sentence. Two adjacent words are joined only when the join is EXACTLY a
+    /// vocabulary term (no fuzzy matching), so ordinary Czech words that happen
+    /// to sit next to each other are never welded together.
+    static func rejoinSplitTerms(_ text: String, canonical: [String: String]) -> String {
+        guard !canonical.isEmpty else { return text }
+        // Split into words and the separators between them, keeping both.
+        var pieces: [String] = []
+        var isWord: [Bool] = []
+        var current = ""
+        var currentIsWord: Bool?
+        for character in text {
+            let wordish = character.isLetter || character.isNumber
+            if currentIsWord == nil || wordish == currentIsWord {
+                current.append(character)
+            } else {
+                pieces.append(current); isWord.append(currentIsWord!)
+                current = String(character)
+            }
+            currentIsWord = wordish
+        }
+        if !current.isEmpty, let last = currentIsWord { pieces.append(current); isWord.append(last) }
+
+        var result = ""
+        var index = 0
+        while index < pieces.count {
+            // word, single space, word → try the join
+            if isWord[index], index + 2 < pieces.count, pieces[index + 1] == " ", isWord[index + 2],
+               let joined = canonical[(pieces[index] + pieces[index + 2]).lowercased()] {
+                result += joined
+                index += 3
+                continue
+            }
+            result += pieces[index]
+            index += 1
+        }
+        return result
     }
 
     /// True if the system spell checker knows the word in any of the app's
