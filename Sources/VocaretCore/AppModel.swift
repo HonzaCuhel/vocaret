@@ -25,7 +25,7 @@ public final class AppModel: ObservableObject {
     @Published public private(set) var coachRunning = false
     @Published public var accessibilityGranted = false
     @Published public var llmAvailable = false
-    @Published public var whisperReady = false
+    @Published public var speechEngineReady = false
     @Published public var selectedSection: MainSection = .dashboard
 
     private var listenerToken: UUID?
@@ -50,7 +50,12 @@ public final class AppModel: ObservableObject {
     public func refreshStatus() {
         accessibilityGranted = Permissions.accessibilityGranted(promptIfNeeded: false)
         llmAvailable = LLMCleaner.serverBinaryPresent()
-        Task { whisperReady = await Transcriber.shared.isReady }
+        Task {
+            let target = ModelLifecyclePolicy.preloadTarget(engine: SettingsStore.shared.asrEngine)
+            speechEngineReady = target != .none && !SettingsStore.shared.keepModelLoaded
+                ? true
+                : await Transcriber.shared.isReady
+        }
     }
 
     // MARK: - History

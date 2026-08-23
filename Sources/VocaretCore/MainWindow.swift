@@ -162,7 +162,7 @@ struct StatusFooter: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            statusRow(ok: model.whisperReady, text: model.whisperReady ? L("Whisper ready") : L("Loading model…"))
+            statusRow(ok: model.speechEngineReady, text: model.speechEngineReady ? L("Speech engine ready") : L("Speech engine needs setup"))
             statusRow(ok: model.accessibilityGranted, text: model.accessibilityGranted ? L("Accessibility granted") : L("Accessibility missing"))
             statusRow(ok: model.llmAvailable, text: model.llmAvailable ? L("Local LLM installed") : L("LLM not set up"))
         }

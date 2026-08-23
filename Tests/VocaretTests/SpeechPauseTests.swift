@@ -43,6 +43,23 @@ final class SpeechPauseTests: XCTestCase {
         XCTAssertFalse(SpeechPause.shouldSpeculate(on: samples, alreadySpeculatedCount: samples.count))
     }
 
+    func testDoesNotSpeculateAgainWhenOnlyMoreSilenceWasCaptured() {
+        let first = speech(2.0) + silence(0.6)
+        let later = first + silence(0.5)
+        XCTAssertFalse(SpeechPause.shouldSpeculate(on: later, alreadySpeculatedCount: first.count))
+    }
+
+    func testActivitySnapshotDetectsPauseWithoutCopyingWholeRecording() {
+        var activity = RecordingActivity(sampleRate: rate, maximumTailSeconds: 1.5)
+        activity.append(speech(4.0))
+        activity.append(silence(0.6))
+
+        XCTAssertTrue(SpeechPause.shouldSpeculate(
+            on: activity.snapshot(tailSeconds: 1.5),
+            alreadySpeculatedCount: 0
+        ))
+    }
+
     func testSpeculatesAgainAfterMoreSpeechAndAnotherPause() {
         let first = speech(2.0) + silence(0.6)
         let second = first + speech(1.5) + silence(0.6)

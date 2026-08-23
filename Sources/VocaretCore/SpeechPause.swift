@@ -46,6 +46,11 @@ public enum SpeechPause {
         return max(absoluteThreshold, peak * relativeThreshold)
     }
 
+    static func speechThreshold(peakEnergy: Float) -> Float? {
+        guard peakEnergy > absoluteThreshold else { return nil }
+        return max(absoluteThreshold, peakEnergy * relativeThreshold)
+    }
+
     /// Seconds of silence at the end of `samples`, or nil when no speech has
     /// been detected at all yet.
     public static func trailingSilence(in samples: [Float], sampleRate: Double = MicRecorder.whisperSampleRate) -> Double? {
@@ -66,8 +71,50 @@ public enum SpeechPause {
     ) -> Bool {
         guard Double(samples.count) / sampleRate >= minimumSpeculationSeconds else { return false }
         guard samples.count > alreadySpeculatedCount else { return false }
+        if alreadySpeculatedCount > 0 {
+            let energies = frameEnergies(samples, sampleRate: sampleRate)
+            guard let threshold = speechThreshold(energies) else { return false }
+            let frameLength = max(1, Int(frameSeconds * sampleRate))
+            let firstNewFrame = min(
+                energies.count,
+                (alreadySpeculatedCount + frameLength - 1) / frameLength
+            )
+            guard firstNewFrame < energies.count,
+                  energies[firstNewFrame...].contains(where: { $0 > threshold }) else { return false }
+        }
         guard let silence = trailingSilence(in: samples, sampleRate: sampleRate) else { return false }
         return silence >= endOfSpeechSilence
+    }
+
+    /// Bounded equivalent used by the live recorder. Total duration and peak
+    /// energy are streaming counters; only the recent tail is scanned.
+    static func shouldSpeculate(
+        on snapshot: RecordingActivitySnapshot,
+        alreadySpeculatedCount: Int
+    ) -> Bool {
+        guard Double(snapshot.sampleCount) / snapshot.sampleRate >= minimumSpeculationSeconds else { return false }
+        guard snapshot.sampleCount > alreadySpeculatedCount else { return false }
+        guard let threshold = speechThreshold(peakEnergy: snapshot.peakEnergy) else { return false }
+
+        if alreadySpeculatedCount > 0 {
+            let newTailStart = max(0, alreadySpeculatedCount - snapshot.tailStartSample)
+            guard newTailStart < snapshot.tail.count else { return false }
+            let newEnergies = frameEnergies(
+                Array(snapshot.tail[newTailStart...]),
+                sampleRate: snapshot.sampleRate
+            )
+            guard newEnergies.contains(where: { $0 > threshold }) else { return false }
+        }
+
+        let energies = frameEnergies(snapshot.tail, sampleRate: snapshot.sampleRate)
+        let trailingSilence: Double
+        if let lastSpeech = energies.lastIndex(where: { $0 > threshold }) {
+            let speechEnd = Double(lastSpeech + 1) * frameSeconds
+            trailingSilence = max(0, Double(snapshot.tail.count) / snapshot.sampleRate - speechEnd)
+        } else {
+            trailingSilence = Double(snapshot.tail.count) / snapshot.sampleRate
+        }
+        return trailingSilence >= endOfSpeechSilence
     }
 
     /// True when a transcript covering the first `speculatedCount` samples still

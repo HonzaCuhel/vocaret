@@ -1,14 +1,38 @@
 # Privacy
 
-Vocaret is designed so your speech never leaves your Mac. This document states
-precisely what that means — including the parts that are not absolute.
+Vocaret is local by default and offers an explicit, optional Soniox live mode.
+This document states exactly what leaves the Mac in each mode.
 
 ## What leaves your Mac
 
-**Your audio and transcripts: never.** Speech recognition runs locally
-(WhisperKit / Core ML on the Neural Engine). Text cleanup runs locally
-(`llama-server` on `127.0.0.1`). There is no analytics, no telemetry, no crash
-reporting, no account, and no server operated by anyone.
+With **Whisper or Parakeet selected**, microphone audio and transcripts stay on
+the Mac. Speech recognition uses Core ML and optional cleanup uses
+`llama-server` on `127.0.0.1`.
+
+With **Soniox selected**, Vocaret opens a WebSocket to the chosen Soniox EU or
+US endpoint while dictation is active. The API key must belong to a project in
+that same region; Soniox notes that regional access may require contacting its
+support. Vocaret sends 16 kHz microphone audio plus
+language hints and your vocabulary terms, and receives partial/final transcript
+tokens. The complete audio is also retained in memory for local fallback; a
+cloud failure does not upload it elsewhere. Soniox documents no storage for
+real-time requests unless storage is explicitly enabled (Vocaret does not enable
+it) and separate [EU data residency](https://soniox.com/docs/data-residency).
+Review [Soniox security and privacy](https://soniox.com/docs/security-and-privacy)
+before opting in.
+
+When a Soniox key is connected, Settings also calls the selected region's
+`/v1/usage/summary` endpoint to display the exact month-to-date `stt-rt-v5`
+cost, request count, and processed audio duration. That request sends the API
+key for authentication but no recording or transcript.
+
+The Soniox API key is supplied by you and stored in the macOS Data Protection
+Keychain when the app has a provisioning profile. Local ad-hoc builds use
+`~/Library/Application Support/Vocaret/Secrets/soniox.key` instead; its
+directory is mode `0700`, the file is mode `0600`, and it is excluded from
+backups. The key is never stored in `UserDefaults`, logs, or repository files.
+There is no Vocaret analytics, telemetry, crash reporting, account, or operated
+server.
 
 **Three possible downloads, all one-time and all of models, never of your data:**
 
@@ -21,8 +45,8 @@ reporting, no account, and no server operated by anyone.
    TDT 0.6B v3 Core ML model (~500 MB) from Hugging Face (repository
    `FluidInference/parakeet-tdt-0.6b-v3-coreml`).
 
-After that Vocaret works fully offline. You can verify this with Little Snitch,
-LuLu, or by disabling networking.
+After local model downloads, Whisper/Parakeet mode works offline. Soniox mode
+requires networking and paid Soniox API access.
 
 ## What is stored on your Mac, and where
 
@@ -33,6 +57,7 @@ LuLu, or by disabling networking.
 | Raw meeting audio (WAV) | `~/Documents/Vocaret/Recordings/` | **Deleted** after transcription — opt in via *Keep Meeting Audio Files* |
 | Models | `~/Library/Application Support/Vocaret/Models/` | Kept |
 | Settings | `defaults` domain `com.jancuhel.vocaret` | — |
+| Soniox API key (optional) | Data Protection Keychain; protected local file for ad-hoc builds | Kept until removed in Settings |
 
 Two consequences worth knowing:
 
@@ -47,6 +72,7 @@ To delete everything Vocaret ever wrote:
 ```bash
 rm -rf ~/Library/Application\ Support/Vocaret ~/Documents/Vocaret
 defaults delete com.jancuhel.vocaret
+security delete-generic-password -s com.jancuhel.vocaret.api-key -a soniox
 ```
 
 ## Recording other people
@@ -61,7 +87,8 @@ Vocaret shows a one-time warning before your first meeting recording, but the
 legal responsibility is yours, not the software's.
 
 If you are in the EU and record other people, **you** are the data controller
-for those recordings. The author of Vocaret is not — no data ever reaches them.
+for those recordings. The author of Vocaret does not receive the data; if you
+choose Soniox for dictation, Soniox is the external processor for that audio.
 
 ## Permissions Vocaret asks for
 

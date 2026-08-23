@@ -1,0 +1,6 @@
+{
+  "promptFile": "vocaret-site-a.prompt.txt",
+  "approved": true,
+  "chosenBecause": "The product mechanism is legible in one viewport and the floating transcript remains the dominant proof.",
+  "doNotLiteralize": ["Intel support", "notarization", "binary download"]
+}

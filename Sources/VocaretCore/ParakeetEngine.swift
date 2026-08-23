@@ -14,6 +14,7 @@ public actor ParakeetEngine {
 
     private var manager: AsrManager?
     private var loadTask: Task<AsrManager, Error>?
+    private var modelGeneration = 0
 
     public var isReady: Bool { manager != nil }
     public static let modelFolderName = "parakeet-tdt-0.6b-v3"
@@ -22,7 +23,12 @@ public actor ParakeetEngine {
 
     private func ensureLoaded() async throws -> AsrManager {
         if let manager { return manager }
-        if let loadTask { return try await loadTask.value }
+        let generation = modelGeneration
+        if let loadTask {
+            let manager = try await loadTask.value
+            guard generation == modelGeneration else { throw CancellationError() }
+            return manager
+        }
         let task = Task<AsrManager, Error> {
             Log.info("Loading Parakeet TDT v3…")
             // FluidAudio materializes the repo as <parent>/<repo name> and checks
@@ -30,21 +36,31 @@ public actor ParakeetEngine {
             // re-list the Hub on every load.
             let dir = SettingsStore.shared.modelsDir.appendingPathComponent(Self.modelFolderName, isDirectory: true)
             let models = try await AsrModels.downloadAndLoad(to: dir, version: .v3)
+            try Task.checkCancellation()
             let manager = AsrManager(config: .default)
             try await manager.loadModels(models)
+            try Task.checkCancellation()
             Log.info("Parakeet ready")
             return manager
         }
         loadTask = task
-        defer { loadTask = nil }
+        defer {
+            if generation == modelGeneration { loadTask = nil }
+        }
         let m = try await task.value
+        guard generation == modelGeneration else { throw CancellationError() }
         manager = m
         return m
     }
 
     public func preload() async { _ = try? await ensureLoaded() }
 
-    public func unload() { manager = nil }
+    public func unload() {
+        modelGeneration &+= 1
+        loadTask?.cancel()
+        loadTask = nil
+        manager = nil
+    }
 
     /// Transcribe one utterance chunk (16 kHz mono). Returns text + a
     /// confidence in 0…1 as reported by the decoder.

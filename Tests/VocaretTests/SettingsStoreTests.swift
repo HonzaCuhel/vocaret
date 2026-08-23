@@ -22,6 +22,8 @@ final class SettingsStoreTests: XCTestCase {
         XCTAssertEqual(store.language, "auto")
         XCTAssertEqual(store.autoLanguages, ["cs", "en"])
         XCTAssertEqual(store.whisperModel, SettingsStore.defaultWhisperModel)
+        XCTAssertEqual(store.asrEngine, "whisper")
+        XCTAssertEqual(store.sonioxRegion, "eu")
         XCTAssertFalse(store.cleanDictation)
         XCTAssertTrue(store.cleanMeetings)
         XCTAssertFalse(store.keepRecordings) // other people's voices are not kept by default
@@ -63,6 +65,70 @@ final class SettingsStoreTests: XCTestCase {
         XCTAssertEqual(reread.llamaServerPath, "/opt/homebrew/bin/llama-server")
         XCTAssertEqual(reread.llmModelPath, "/tmp/model.gguf")
         XCTAssertEqual(reread.llmPort, 9999)
+    }
+
+    func testSonioxEngineAndRegionRoundTrip() {
+        store.asrEngine = "SONIOX"
+        store.sonioxRegion = "us"
+
+        let reread = SettingsStore(defaults: UserDefaults(suiteName: suiteName)!)
+        XCTAssertEqual(reread.asrEngine, "soniox")
+        XCTAssertEqual(reread.sonioxRegion, "us")
+    }
+
+    func testInvalidEngineAndRegionFallBackToSafeDefaults() {
+        store.asrEngine = "unknown"
+        store.sonioxRegion = "unknown"
+
+        XCTAssertEqual(store.asrEngine, "whisper")
+        XCTAssertEqual(store.sonioxRegion, "eu")
+    }
+
+    func testSonioxDoesNotRequireLocalModelPreload() {
+        XCTAssertEqual(ModelLifecyclePolicy.preloadTarget(engine: "soniox"), .none)
+    }
+
+    func testSwitchingFromWhisperToParakeetUnloadsBothBeforePreload() {
+        XCTAssertEqual(
+            ModelLifecyclePolicy.switchActions(from: "whisper", to: "parakeet"),
+            [.unloadWhisper, .unloadParakeet, .preloadParakeet]
+        )
+    }
+
+    func testSwitchingToSonioxOnlyUnloadsLocalModels() {
+        XCTAssertEqual(
+            ModelLifecyclePolicy.switchActions(from: "parakeet", to: "soniox"),
+            [.unloadWhisper, .unloadParakeet]
+        )
+    }
+
+    func testStaleEngineSelectionIsIgnored() {
+        XCTAssertTrue(ModelLifecyclePolicy.shouldApplySelection(
+            requestedEngine: "soniox",
+            currentEngine: "soniox"
+        ))
+        XCTAssertFalse(ModelLifecyclePolicy.shouldApplySelection(
+            requestedEngine: "parakeet",
+            currentEngine: "soniox"
+        ))
+    }
+
+    func testCloudFallbackOnlyUnloadsItsOwnGeneration() {
+        XCTAssertTrue(ModelLifecyclePolicy.shouldUnloadCloudFallback(
+            startingGeneration: 3,
+            currentGeneration: 3,
+            currentEngine: "soniox"
+        ))
+        XCTAssertFalse(ModelLifecyclePolicy.shouldUnloadCloudFallback(
+            startingGeneration: 3,
+            currentGeneration: 4,
+            currentEngine: "soniox"
+        ))
+        XCTAssertFalse(ModelLifecyclePolicy.shouldUnloadCloudFallback(
+            startingGeneration: 3,
+            currentGeneration: 3,
+            currentEngine: "whisper"
+        ))
     }
 
     func testDirectoriesAreCreated() {

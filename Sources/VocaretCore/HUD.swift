@@ -23,39 +23,58 @@ public final class HUD {
     // MARK: - Recording lifecycle (drives the animation)
 
     /// Enter the recording phase; `level` is polled every frame.
-    public func beginRecording(text: String, level: @escaping () -> Float) {
+    public func beginRecording(status: String, hint: String, level: @escaping () -> Float) {
+        model.beginRecording(status: status, hint: hint)
         model.levelProvider = level
         model.startedAt = Date()
-        model.phase = .recording
-        show(text)
+        persistentText = status
+        present()
     }
 
-    public func beginTranscribing(text: String) {
+    public func beginTranscribing(status: String, hint: String) {
         model.levelProvider = nil
-        model.phase = .transcribing
-        show(text)
+        model.beginTranscribing(status: status, hint: hint)
+        persistentText = status
+        present()
     }
 
     // MARK: - Messages
 
     /// Show a persistent message (until `hide()` or replaced).
     public func show(_ text: String) {
-        guard SettingsStore.shared.showHUD else { return }
         persistentText = text
-        if model.phase == .hidden { model.phase = .message }
-        display(text)
+        if model.phase == .hidden {
+            model.phase = .message
+            model.hintText = ""
+        }
+        model.statusText = text
+        present()
     }
 
     /// Replace the current persistent message.
     public func update(_ text: String) { show(text) }
 
+    /// Replaceable live recognition text shown below the persistent status.
+    public func updatePartial(_ text: String) {
+        guard model.phase == .recording || model.phase == .transcribing else { return }
+        model.partialText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        layout()
+    }
+
+    public func clearPartial() {
+        model.partialText = ""
+        layout()
+    }
+
     /// Show a transient message and then hide. A flash always ENDS the current
     /// interaction, so it clears the persistent message rather than restoring it.
     public func flash(_ text: String, seconds: TimeInterval = 2.5) {
         persistentText = nil
+        model.endInteraction()
         model.levelProvider = nil
         model.phase = .message
-        display(text)
+        model.statusText = text
+        present()
         let shownGeneration = generation
         DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { [weak self] in
             guard let self, self.generation == shownGeneration else { return }
@@ -68,14 +87,15 @@ public final class HUD {
         generation += 1
         model.levelProvider = nil
         model.startedAt = nil
+        model.endInteraction()
         model.phase = .hidden
         panel?.orderOut(nil)
     }
 
-    private func display(_ text: String) {
+    private func present() {
+        guard SettingsStore.shared.showHUD else { return }
         if panel == nil { build() }
         generation += 1
-        model.text = text
         layout()
         panel?.orderFrontRegardless()
     }
@@ -112,7 +132,7 @@ public final class HUD {
         guard let panel else { return }
         let screen = NSScreen.main ?? NSScreen.screens.first
         guard let screenFrame = screen?.visibleFrame else { return }
-        let size = NSSize(width: 480, height: 72)
+        let size = RecorderHUDLayout.panelSize(transcript: model.presentedPartialText)
         let origin = NSPoint(x: screenFrame.midX - size.width / 2, y: screenFrame.minY + 84)
         panel.setFrame(NSRect(origin: origin, size: size), display: true)
     }

@@ -1,5 +1,29 @@
 import SwiftUI
 
+enum RecorderTranscriptPresentation {
+    static func visibleText(_ transcript: String, sentenceLimit: Int = 4) -> String {
+        let trimmed = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "" }
+
+        var sentences: [String] = []
+        trimmed.enumerateSubstrings(
+            in: trimmed.startIndex..<trimmed.endIndex,
+            options: [.bySentences, .substringNotRequired]
+        ) { _, range, _, _ in
+            let sentence = trimmed[range].trimmingCharacters(in: .whitespacesAndNewlines)
+            if !sentence.isEmpty { sentences.append(sentence) }
+        }
+        guard !sentences.isEmpty else { return trimmed }
+        return sentences.suffix(max(1, sentenceLimit)).joined(separator: " ")
+    }
+
+    static func shouldCenter(_ transcript: String) -> Bool {
+        let trimmed = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        let words = trimmed.split(whereSeparator: { $0.isWhitespace }).count
+        return !trimmed.isEmpty && words <= 3 && trimmed.count <= 32
+    }
+}
+
 /// The state the floating recorder pill renders. Owned by HUD, driven by the
 /// controllers; the view re-reads `levelProvider` every frame.
 @MainActor
@@ -7,16 +31,62 @@ public final class RecorderModel: ObservableObject {
     public enum Phase: Equatable { case hidden, recording, transcribing, message }
 
     @Published public var phase: Phase = .hidden
-    @Published public var text: String = ""
+    @Published public var statusText: String = ""
+    @Published public var hintText: String = ""
+    @Published public var partialText: String = ""
     @Published public var startedAt: Date?
     /// Read on every frame; nil when nothing is recording.
     public var levelProvider: (() -> Float)?
 
     public init() {}
+
+    /// Compatibility for callers that still treat the primary copy as one
+    /// message. New recorder flows should set status and hint separately.
+    public var text: String {
+        get { statusText }
+        set { statusText = newValue }
+    }
+
+    /// Recording already has an animated microphone indicator. Repeating the
+    /// engine name (for example, "Live · Soniox" or "Local transcription")
+    /// adds noise without helping the user; phase changes still show status.
+    var presentedStatusText: String {
+        phase == .recording ? "" : statusText
+    }
+
+    var presentedPartialText: String {
+        RecorderTranscriptPresentation.visibleText(partialText)
+    }
+
+    var centersPresentedPartialText: Bool {
+        RecorderTranscriptPresentation.shouldCenter(presentedPartialText)
+    }
+
+    func beginRecording() {
+        partialText = ""
+    }
+
+    func beginRecording(status: String, hint: String) {
+        beginRecording()
+        statusText = status
+        hintText = hint
+        phase = .recording
+    }
+
+    func beginTranscribing(status: String, hint: String) {
+        statusText = status
+        hintText = hint
+        phase = .transcribing
+    }
+
+    func endInteraction() {
+        statusText = ""
+        hintText = ""
+        partialText = ""
+    }
 }
 
-/// Seven capsules that dance with the microphone level while recording,
-/// pulse gently while transcribing, and read as a plain status pill otherwise.
+/// A compact status row with a prominent rolling transcript underneath.
 public struct RecorderPillView: View {
     @ObservedObject var model: RecorderModel
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -26,13 +96,20 @@ public struct RecorderPillView: View {
     public init(model: RecorderModel) { self.model = model }
 
     public var body: some View {
-        HStack(spacing: 12) {
-            indicator
-                .frame(width: 44, height: 22)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(model.text)
-                    .font(.system(size: 13, weight: .medium))
-                    .lineLimit(1)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 9) {
+                indicator
+                    .frame(width: 36, height: 22)
+
+                if !model.presentedStatusText.isEmpty {
+                    Text(model.presentedStatusText)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                }
+
+                Spacer(minLength: 10)
+
                 if model.phase == .recording, let startedAt = model.startedAt {
                     TimelineView(.periodic(from: startedAt, by: 1)) { context in
                         Text(Self.clock(context.date.timeIntervalSince(startedAt)))
@@ -40,14 +117,38 @@ public struct RecorderPillView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
+
+                if !model.hintText.isEmpty {
+                    Text(model.hintText)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            }
+
+            if !model.presentedPartialText.isEmpty {
+                Text(model.presentedPartialText)
+                    .font(.system(size: 17, weight: .medium))
+                    .foregroundStyle(.primary)
+                    .lineLimit(4)
+                    .truncationMode(.head)
+                    .multilineTextAlignment(model.centersPresentedPartialText ? .center : .leading)
+                    .frame(
+                        maxWidth: .infinity,
+                        alignment: model.centersPresentedPartialText ? .center : .leading
+                    )
+                    .accessibilityLabel(L("Live transcript"))
             }
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 9)
-        .background(.regularMaterial, in: Capsule())
-        .overlay(Capsule().strokeBorder(.white.opacity(0.08)))
+        .padding(.vertical, 11)
+        .frame(width: 528, alignment: .leading)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .strokeBorder(.white.opacity(0.10))
+        )
         .shadow(color: .black.opacity(0.28), radius: 14, y: 6)
-        .animation(.easeOut(duration: 0.18), value: model.phase)
     }
 
     @ViewBuilder private var indicator: some View {
@@ -63,9 +164,9 @@ public struct RecorderPillView: View {
                             .frame(width: 4, height: barHeight(index: index, level: level, time: t))
                     }
                 }
-                .frame(width: 44, height: 22)
+                .frame(width: 36, height: 22)
             }
-            .accessibilityLabel("Recording")
+            .accessibilityLabel(L("Recording"))
         case .transcribing:
             TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: reduceMotion)) { context in
                 let t = context.date.timeIntervalSinceReferenceDate
@@ -77,9 +178,9 @@ public struct RecorderPillView: View {
                             .frame(width: 4, height: 6 + 8 * CGFloat(phase * 0.5 + 0.5))
                     }
                 }
-                .frame(width: 44, height: 22)
+                .frame(width: 36, height: 22)
             }
-            .accessibilityLabel("Transcribing")
+            .accessibilityLabel(L("Transcribing"))
         case .message, .hidden:
             Image(systemName: "mic.fill")
                 .font(.system(size: 14, weight: .semibold))

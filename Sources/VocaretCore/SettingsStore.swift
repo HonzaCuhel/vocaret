@@ -37,6 +37,7 @@ public final class SettingsStore: @unchecked Sendable {
         static let pauseMediaWhileRecording = "pauseMediaWhileRecording"
         static let appearance = "appearance"
         static let asrEngine = "asrEngine"
+        static let sonioxRegion = "sonioxRegion"
         static let uiLanguage = "uiLanguage"
         static let keepModelLoaded = "keepModelLoaded"
         static let dictationKeyCode = "dictationKeyCode"
@@ -109,13 +110,21 @@ public final class SettingsStore: @unchecked Sendable {
         set { defaults.set(newValue, forKey: Key.meetingConsentAcknowledged) }
     }
 
-    /// "whisper" (default) | "parakeet" (experimental, faster, no language conditioning)
-    /// "whisper" (default) or "parakeet". Anything else — a typo via
-    /// `defaults write` or `--engine` — falls back to Whisper, so the engine in
-    /// use always matches what Settings shows.
+    /// "whisper" (default), "parakeet" (experimental local), or "soniox"
+    /// (streaming cloud). Anything else falls back to Whisper.
     public var asrEngine: String {
-        get { defaults.string(forKey: Key.asrEngine)?.lowercased() == "parakeet" ? "parakeet" : "whisper" }
+        get {
+            let value = defaults.string(forKey: Key.asrEngine)?.lowercased()
+            return ["whisper", "parakeet", "soniox"].contains(value) ? value! : "whisper"
+        }
         set { defaults.set(newValue, forKey: Key.asrEngine) }
+    }
+
+    /// Soniox processing region. EU is the privacy-preserving default for this
+    /// Czech-first app; invalid externally-written values also resolve to EU.
+    public var sonioxRegion: String {
+        get { defaults.string(forKey: Key.sonioxRegion)?.lowercased() == "us" ? "us" : "eu" }
+        set { defaults.set(newValue, forKey: Key.sonioxRegion) }
     }
 
     /// "system" | "light" | "dark"

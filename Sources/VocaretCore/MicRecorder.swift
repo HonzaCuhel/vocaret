@@ -55,10 +55,25 @@ public final class MicRecorder {
     private var targetFormat: AVAudioFormat?
     private var file: AVAudioFile?
     private var samples: [Float] = []
+    private var activity = RecordingActivity(sampleRate: MicRecorder.whisperSampleRate)
+    private var _onSamples: (@Sendable ([Float]) -> Void)?
     private let sampleLock = NSLock()
     private var configObserver: NSObjectProtocol?
 
     public init() {}
+
+    /// Incremental 16 kHz chunks, delivered on the audio callback thread.
+    /// Consumers must return quickly and move network work to another task.
+    public var onSamples: (@Sendable ([Float]) -> Void)? {
+        get {
+            sampleLock.lock(); defer { sampleLock.unlock() }
+            return _onSamples
+        }
+        set {
+            sampleLock.lock(); defer { sampleLock.unlock() }
+            _onSamples = newValue
+        }
+    }
 
     public func startInMemory() throws {
         try start(fileURL: nil)
@@ -72,6 +87,7 @@ public final class MicRecorder {
         guard !isRunning else { return }
         sampleLock.lock()
         samples.removeAll()
+        activity = RecordingActivity(sampleRate: Self.whisperSampleRate)
         sampleLock.unlock()
 
         let engine = AVAudioEngine()
@@ -194,9 +210,16 @@ public final class MicRecorder {
             return
         }
         if let channelData = converted.floatChannelData {
+            let chunk = Array(UnsafeBufferPointer(
+                start: channelData[0],
+                count: Int(converted.frameLength)
+            ))
             sampleLock.lock()
-            samples.append(contentsOf: UnsafeBufferPointer(start: channelData[0], count: Int(converted.frameLength)))
+            samples.append(contentsOf: chunk)
+            activity.append(chunk)
+            let onSamples = _onSamples
             sampleLock.unlock()
+            onSamples?(chunk)
         }
     }
 
@@ -226,6 +249,13 @@ public final class MicRecorder {
         return samples
     }
 
+    /// A bounded tail plus streaming counters for cheap pause polling.
+    func activitySnapshot(tailSeconds: Double = 1.5) -> RecordingActivitySnapshot {
+        sampleLock.lock()
+        defer { sampleLock.unlock() }
+        return activity.snapshot(tailSeconds: tailSeconds)
+    }
+
     /// Stops capture. Returns the accumulated 16 kHz samples (in-memory mode)
     /// or an empty array (file mode — the WAV is already on disk).
     @discardableResult
@@ -249,6 +279,8 @@ public final class MicRecorder {
         defer { sampleLock.unlock() }
         let result = samples
         samples = []
+        activity = RecordingActivity(sampleRate: Self.whisperSampleRate)
+        _onSamples = nil
         return result
     }
 }

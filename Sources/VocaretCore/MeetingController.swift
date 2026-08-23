@@ -138,7 +138,8 @@ public final class MeetingController {
             MediaPauser.shared.pauseIfPlaying()
             if SettingsStore.shared.cleanMeetings { LLMCleaner.shared.warmUp() }
             HUD.shared.beginRecording(
-                text: "Recording meeting · \(SettingsStore.shared.meetingHotkeyLabel) to finish",
+                status: L("Recording meeting"),
+                hint: "\(SettingsStore.shared.meetingHotkeyLabel) · \(L("Press to finish"))",
                 level: { [weak micRecorder] in micRecorder?.level ?? 0 }
             )
         }
@@ -153,7 +154,10 @@ public final class MeetingController {
         stopCapture()
         SoundPlayer.play(.stop)
         state = .processing
-        HUD.shared.beginTranscribing(text: "Transcribing meeting… this can take a few minutes")
+        HUD.shared.beginTranscribing(
+            status: L("Transcribing meeting…"),
+            hint: L("This can take a few minutes")
+        )
 
         let startedAt = self.startedAt ?? Date()
         Task { @MainActor in

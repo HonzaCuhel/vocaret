@@ -462,14 +462,17 @@ public enum SelfTest {
     static func hudTest() async {
         let dir = (outputURL?.deletingLastPathComponent() ?? FileManager.default.temporaryDirectory)
         var phase = 0.0
-        HUD.shared.beginRecording(text: "Release ⌃⌥D to insert · Esc cancels") {
+        HUD.shared.beginRecording(status: "Live · Soniox", hint: "Release to insert · ⌃⌥D · Esc cancels") {
             phase += 0.09
             return Float(0.35 + 0.35 * sin(phase)) // breathing 0…0.7
         }
         try? await Task.sleep(nanoseconds: 1_200_000_000)
         check(HUD.shared.model.phase == .recording, "[hud] pill entered recording phase")
+        HUD.shared.updatePartial("Tohle je živý částečný přepis ze Sonioxu")
+        check(!HUD.shared.model.partialText.isEmpty, "[hud] live partial transcript is visible")
         renderPill(to: dir.appendingPathComponent("hud-recording.png"))
-        HUD.shared.beginTranscribing(text: "Transcribing… (Esc to cancel)")
+        HUD.shared.beginTranscribing(status: "Finalizing…", hint: "Esc cancels")
+        check(!HUD.shared.model.partialText.isEmpty, "[hud] finalization preserves the live transcript")
         try? await Task.sleep(nanoseconds: 600_000_000)
         check(HUD.shared.model.phase == .transcribing, "[hud] pill entered transcribing phase")
         renderPill(to: dir.appendingPathComponent("hud-transcribing.png"))
@@ -481,7 +484,8 @@ public enum SelfTest {
     @MainActor
     private static func renderPill(to url: URL) {
         let view = NSHostingView(rootView: RecorderPillView(model: HUD.shared.model))
-        view.frame = NSRect(x: 0, y: 0, width: 480, height: 80)
+        let size = RecorderHUDLayout.panelSize(transcript: HUD.shared.model.presentedPartialText)
+        view.frame = NSRect(origin: .zero, size: size)
         view.wantsLayer = true
         view.layer?.backgroundColor = NSColor(calibratedWhite: 0.12, alpha: 1).cgColor
         let window = NSWindow(contentRect: view.frame, styleMask: [.borderless], backing: .buffered, defer: false)

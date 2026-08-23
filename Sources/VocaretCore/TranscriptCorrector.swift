@@ -7,7 +7,11 @@ import Foundation
 /// or not the AI cleanup is enabled.
 public enum TranscriptCorrector {
 
-    public static func apply(_ text: String, vocabulary: Vocabulary) -> String {
+    /// `language` is the language the utterance was recognised as. Passing it
+    /// makes the "is this already a real word?" guard much sharper: inside a
+    /// Czech sentence, "Slag" is not a Czech word, so it can be snapped to the
+    /// user's "Slack" — while in an English sentence "slag" is left alone.
+    public static func apply(_ text: String, vocabulary: Vocabulary, language: String? = nil) -> String {
         let terms = vocabulary.terms
         let learned = vocabulary.learnedCorrections
         guard !terms.isEmpty || !learned.isEmpty else { return text }
@@ -23,7 +27,7 @@ public enum TranscriptCorrector {
 
         func flush() {
             guard !current.isEmpty else { return }
-            result += correctWord(current, canonical: canonical, learned: learned, terms: terms)
+            result += correctWord(current, canonical: canonical, learned: learned, terms: terms, language: language)
             current = ""
         }
 
@@ -44,7 +48,8 @@ public enum TranscriptCorrector {
         _ word: String,
         canonical: [String: String],
         learned: [String: String],
-        terms: [String]
+        terms: [String],
+        language: String?
     ) -> String {
         // Words like "llama.cpp" pick up a trailing sentence period; correct the
         // core and hand the punctuation back untouched.
@@ -63,12 +68,23 @@ public enum TranscriptCorrector {
 
         // Fuzzy: only for words long enough that a near miss is not a coincidence,
         // and never for words that are themselves valid ("codes" must not become
-        // "Codex", "clause" must not become "Claude").
-        if core.count >= 5, !isRealWord(core) {
+        // "Codex", "clause" must not become "Claude"). When the utterance's
+        // language is known the check is that much sharper, so four-letter
+        // misses like "Slag" for "Slack" can be caught too.
+        let minimumLength = language == nil ? 5 : 4
+        if core.count >= minimumLength, !isRealWord(core, language: language) {
             let budget = core.count >= 8 ? 2 : 1
+            // Czech devoices consonants at the end of a word, so a recogniser
+            // writing Czech hears "Slack" as "Slag". Comparing the devoiced
+            // forms turns that into an ordinary near miss.
+            let folded = Self.foldFinalVoicing(lowered)
             var best: (term: String, distance: Int)?
             for term in terms where abs(term.count - core.count) <= budget {
-                let distance = editDistance(lowered, term.lowercased())
+                let loweredTerm = term.lowercased()
+                let distance = min(
+                    editDistance(lowered, loweredTerm),
+                    editDistance(folded, Self.foldFinalVoicing(loweredTerm))
+                )
                 if distance <= budget, distance < (best?.distance ?? Int.max) {
                     best = (term, distance)
                 }
@@ -118,15 +134,20 @@ public enum TranscriptCorrector {
         return result
     }
 
-    /// True if the system spell checker knows the word in any of the app's
-    /// languages (Czech + English + auto-detect set). Cached per process.
-    static func isRealWord(_ word: String) -> Bool {
-        let key = word.lowercased()
+    /// True if the system spell checker knows the word — in `language` when the
+    /// utterance's language is known, otherwise in any of the app's languages
+    /// (Czech + English + auto-detect set). Cached per process.
+    static func isRealWord(_ word: String, language: String? = nil) -> Bool {
+        let key = (language ?? "*") + ":" + word.lowercased()
         realWordLock.lock()
         if let cached = realWordCache[key] { realWordLock.unlock(); return cached }
         realWordLock.unlock()
-        var languages = ["en", "cs"] + SettingsStore.shared.autoLanguages
-        languages = Array(Set(languages))
+        var languages: [String]
+        if let language {
+            languages = [language]
+        } else {
+            languages = Array(Set(["en", "cs"] + SettingsStore.shared.autoLanguages))
+        }
         let checker = NSSpellChecker.shared
         var real = false
         for language in languages {
@@ -138,6 +159,15 @@ public enum TranscriptCorrector {
     }
     private static var realWordCache: [String: Bool] = [:]
     private static let realWordLock = NSLock()
+
+    /// The final consonant folded onto its voiceless pair — the way Czech
+    /// actually pronounces the end of a word, where "Slack" and "Slag" are
+    /// indistinguishable. Only the last letter is touched.
+    static func foldFinalVoicing(_ word: String) -> String {
+        let pairs: [Character: Character] = ["g": "k", "d": "t", "b": "p", "z": "s", "ž": "š", "v": "f"]
+        guard let last = word.last, let voiceless = pairs[last] else { return word }
+        return String(word.dropLast()) + String(voiceless)
+    }
 
     /// Levenshtein distance, iterative single-row.
     static func editDistance(_ a: String, _ b: String) -> Int {

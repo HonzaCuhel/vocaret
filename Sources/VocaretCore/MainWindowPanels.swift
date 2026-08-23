@@ -215,6 +215,13 @@ struct SettingsView: View {
     @State private var recordingHotkey: HotkeyTarget?
     @State private var hotkeyProblem: String?
     @State private var vocabularyText = ""
+    @State private var sonioxKeyEntry = ""
+    @State private var sonioxKeySaved = false
+    @State private var sonioxKeyStatus: String?
+    @State private var sonioxKeyBusy = false
+    @State private var sonioxUsage: SonioxUsageSnapshot?
+    @State private var sonioxUsageStatus: String?
+    @State private var sonioxUsageBusy = false
 
     enum HotkeyTarget { case dictation, meeting }
 
@@ -229,7 +236,16 @@ struct SettingsView: View {
                 Toggle(L("Hold to talk (release inserts); a quick tap toggles"), isOn: $settings.pushToTalk)
                 Text(L("Changes to shortcuts apply after you restart Vocaret.")).font(.caption).foregroundStyle(.secondary)
             }
-            Section(L("Language")) {
+            Section(L("Transcription")) {
+                Picker(L("Speech engine"), selection: $settings.asrEngine) {
+                    Text("Whisper").tag("whisper")
+                    Text("Parakeet").tag("parakeet")
+                    Text(L("Soniox Live")).tag("soniox")
+                }
+                Text(speechEngineDescription)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
                 Picker(L("Transcribe"), selection: $settings.language) {
                     Text(L("Auto-detect")).tag("auto"); Text("Čeština").tag("cs"); Text("English").tag("en")
                     // A value set via `defaults write` that is not in the list
@@ -239,8 +255,7 @@ struct SettingsView: View {
                     }
                 }
                 if settings.language == "auto" {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(L("Auto-detect chooses between:")).font(.caption).foregroundStyle(.secondary)
+                    DisclosureGroup(L("Detection languages")) {
                         LazyVGrid(columns: [GridItem(.adaptive(minimum: 130), alignment: .leading)], alignment: .leading, spacing: 4) {
                             ForEach(L10n.detectableLanguages, id: \.code) { lang in
                                 Toggle(lang.name, isOn: Binding(
@@ -253,25 +268,90 @@ struct SettingsView: View {
                                 )).toggleStyle(.checkbox)
                             }
                         }
+                        .padding(.top, 4)
                     }
                 }
-                Picker(L("Speech engine"), selection: $settings.asrEngine) {
-                    Text("Whisper large-v3-turbo — best for Czech mixed with English terms").tag("whisper")
-                    Text("Parakeet TDT v3 — about 10× faster (0.15 s vs 1.2 s)").tag("parakeet")
-                }
-                if settings.asrEngine == "parakeet" {
-                    Text(L("Measured on Czech dictations: same text as Whisper on plain Czech, but it mishears English terms inside Czech speech (\"pull request\", \"Slack\"). Downloads ~500 MB on first use."))
+
+                if settings.asrEngine == "soniox" {
+                    Picker(L("Processing region"), selection: $settings.sonioxRegion) {
+                        Text("European Union — requires an EU project key").tag("eu")
+                        Text("United States").tag("us")
+                    }
+                    if sonioxKeySaved {
+                        HStack {
+                            Label(L("Connected"), systemImage: "checkmark.circle.fill")
+                                .foregroundStyle(.green)
+                            Spacer()
+                            Button(L("Disconnect"), role: .destructive) { removeSonioxKey() }
+                                .disabled(sonioxKeyBusy)
+                        }
+                        Divider()
+                        LabeledContent(L("Soniox spend this month")) {
+                            if let sonioxUsage {
+                                Text(sonioxUsage.formattedCostUSD)
+                                    .font(.system(size: 21, weight: .semibold, design: .rounded))
+                                    .monospacedDigit()
+                            } else if sonioxUsageBusy {
+                                ProgressView().controlSize(.small)
+                            } else {
+                                Text("—").foregroundStyle(.secondary)
+                            }
+                        }
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            if let sonioxUsage {
+                                Text("\(sonioxUsage.requestCount) \(L("requests")) · \(sonioxUsage.formattedAudioDuration) \(L("audio"))")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            } else if let sonioxUsageStatus {
+                                Text(sonioxUsageStatus)
+                                    .font(.caption)
+                                    .foregroundStyle(.orange)
+                            }
+                            Spacer()
+                            Button {
+                                Task { await refreshSonioxUsage() }
+                            } label: {
+                                Label(L("Refresh usage"), systemImage: "arrow.clockwise")
+                            }
+                            .labelStyle(.iconOnly)
+                            .controlSize(.small)
+                            .disabled(sonioxUsageBusy)
+                            .help(L("Refresh usage"))
+                        }
+                        Text(L("Exact stt-rt-v5 project usage from Soniox for the current UTC month."))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        SecureField(L("Soniox API key"), text: $sonioxKeyEntry)
+                            .disabled(sonioxKeyBusy)
+                        HStack {
+                            Button(L("Connect")) { saveSonioxKey() }
+                                .buttonStyle(.borderedProminent)
+                                .disabled(sonioxKeyBusy || sonioxKeyEntry.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                            if sonioxKeyBusy {
+                                ProgressView().controlSize(.small)
+                            }
+                            if let sonioxKeyStatus {
+                                Text(sonioxKeyStatus).font(.caption).foregroundStyle(.orange)
+                            }
+                        }
+                    }
+                    Text(L("Soniox streams dictation audio to the selected region. The key stays in protected storage on this Mac; local fallback is automatic."))
+                        .font(.caption).foregroundStyle(.secondary)
+                } else if settings.asrEngine == "whisper" {
+                    Picker(L("Speech model"), selection: $settings.whisperModel) {
+                        Text("Large v3 turbo — best for Czech (1.6 GB)").tag("openai_whisper-large-v3-v20240930")
+                        Text("Large v3 turbo, compressed (626 MB)").tag("openai_whisper-large-v3-v20240930_626MB")
+                        Text("Large v3 — slowest, most accurate (3 GB)").tag("openai_whisper-large-v3")
+                        if !Self.knownWhisperModels.contains(settings.whisperModel) {
+                            Text(L("Custom: ") + settings.whisperModel).tag(settings.whisperModel)
+                        }
+                    }
+                    Text(L("A new model downloads on next launch. Smaller models are much worse at Czech."))
                         .font(.caption).foregroundStyle(.secondary)
                 }
-                Picker(L("Speech model"), selection: $settings.whisperModel) {
-                    Text("Large v3 turbo — best for Czech (1.6 GB)").tag("openai_whisper-large-v3-v20240930")
-                    Text("Large v3 turbo, compressed (626 MB)").tag("openai_whisper-large-v3-v20240930_626MB")
-                    Text("Large v3 — slowest, most accurate (3 GB)").tag("openai_whisper-large-v3")
-                    if !Self.knownWhisperModels.contains(settings.whisperModel) {
-                        Text(L("Custom: ") + settings.whisperModel).tag(settings.whisperModel)
-                    }
-                }
-                Text(L("A new model downloads on next launch. Smaller models are much worse at Czech.")).font(.caption).foregroundStyle(.secondary)
+            }
+            Section(L("Interface")) {
                 Picker(L("Interface language"), selection: $settings.uiLanguage) {
                     Text(L("System")).tag("system"); Text("English").tag("en"); Text("Čeština").tag("cs")
                 }
@@ -307,6 +387,7 @@ struct SettingsView: View {
                 Toggle(L("Keep a history of dictations on this Mac"), isOn: $settings.keepDictationHistory)
                 Toggle(L("Keep raw meeting audio after transcribing"), isOn: $settings.keepRecordings)
                 Toggle(L("Keep the speech model loaded (faster, ~800 MB RAM)"), isOn: $settings.keepModelLoaded)
+                    .disabled(settings.asrEngine == "soniox")
                 Toggle(L("Start Vocaret at login"), isOn: $settings.startAtLogin)
                     .disabled(!LoginItem.isBundled)
                 if !LoginItem.isBundled {
@@ -332,7 +413,10 @@ struct SettingsView: View {
                 LabeledContent(L("Dictation history"), value: TranscriptHistory.shared.fileURL.path)
                 LabeledContent(L("Meeting transcripts"), value: SettingsStore.shared.meetingsDir.path)
                 LabeledContent(L("Models"), value: SettingsStore.shared.modelsDir.path)
-                Text(L("Nothing here ever leaves this Mac. See PRIVACY.md for the exact details.")).font(.caption).foregroundStyle(.secondary)
+                Text(settings.asrEngine == "soniox"
+                     ? L("Live dictation audio is sent to your selected Soniox region. History, meetings, and local cleanup remain on this Mac.")
+                     : L("Local speech engines keep audio on this Mac. See PRIVACY.md for the exact details."))
+                    .font(.caption).foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
@@ -340,9 +424,18 @@ struct SettingsView: View {
         .onAppear {
             settings = SettingsSnapshot()
             vocabularyText = Vocabulary.shared.terms.joined(separator: "\n")
+            refreshSonioxKeyStatus()
             model.refreshStatus()
         }
         .onChange(of: settings) { old, new in new.apply(changedFrom: old) }
+        .task(id: "\(sonioxKeySaved)-\(settings.sonioxRegion)") {
+            if sonioxKeySaved {
+                await refreshSonioxUsage()
+            } else {
+                sonioxUsage = nil
+                sonioxUsageStatus = nil
+            }
+        }
         .onDisappear { recordingHotkey = nil }
         .background(HotkeyRecorder(target: $recordingHotkey) { keyCode, modifiers in
             let label = HotkeyManager.describe(keyCode: keyCode, modifiers: modifiers)
@@ -368,6 +461,88 @@ struct SettingsView: View {
     static let knownWhisperModels = [
         "openai_whisper-large-v3-v20240930", "openai_whisper-large-v3-v20240930_626MB", "openai_whisper-large-v3",
     ]
+
+    private var speechEngineDescription: String {
+        switch settings.asrEngine {
+        case "soniox":
+            return L("Live words appear while you speak. Audio is processed in your selected Soniox region.")
+        case "parakeet":
+            return L("Fast local transcription. Best for plain Czech; mixed English terms may be less accurate.")
+        default:
+            return L("Accurate local transcription. Text appears after a pause or when you finish.")
+        }
+    }
+
+    private func refreshSonioxKeyStatus() {
+        guard !sonioxKeyBusy else { return }
+        sonioxKeyBusy = true
+        Task { @MainActor in
+            defer { sonioxKeyBusy = false }
+            do {
+                sonioxKeySaved = try await AsyncAPIKeyAccess.shared.load(.soniox) != nil
+                sonioxKeyStatus = nil
+            } catch {
+                sonioxKeySaved = false
+                sonioxKeyStatus = error.localizedDescription
+            }
+        }
+    }
+
+    private func saveSonioxKey() {
+        guard !sonioxKeyBusy else { return }
+        let key = sonioxKeyEntry
+        sonioxKeyBusy = true
+        Task { @MainActor in
+            defer { sonioxKeyBusy = false }
+            do {
+                try await AsyncAPIKeyAccess.shared.save(key, for: .soniox)
+                sonioxKeyEntry = ""
+                sonioxKeySaved = true
+                sonioxKeyStatus = nil
+                model.refreshStatus()
+            } catch {
+                sonioxKeyStatus = error.localizedDescription
+            }
+        }
+    }
+
+    private func removeSonioxKey() {
+        guard !sonioxKeyBusy else { return }
+        sonioxKeyBusy = true
+        Task { @MainActor in
+            defer { sonioxKeyBusy = false }
+            do {
+                try await AsyncAPIKeyAccess.shared.remove(.soniox)
+                sonioxKeyEntry = ""
+                sonioxKeySaved = false
+                sonioxKeyStatus = nil
+                sonioxUsage = nil
+                sonioxUsageStatus = nil
+                model.refreshStatus()
+            } catch {
+                sonioxKeyStatus = error.localizedDescription
+            }
+        }
+    }
+
+    @MainActor
+    private func refreshSonioxUsage() async {
+        guard sonioxKeySaved, !sonioxUsageBusy else { return }
+        sonioxUsageBusy = true
+        defer { sonioxUsageBusy = false }
+        do {
+            guard let apiKey = try await AsyncAPIKeyAccess.shared.load(.soniox) else {
+                sonioxUsage = nil
+                sonioxUsageStatus = L("API key required")
+                return
+            }
+            let region = SonioxRegion(rawValue: settings.sonioxRegion) ?? .eu
+            sonioxUsage = try await SonioxUsageClient().fetchCurrentMonth(apiKey: apiKey, region: region)
+            sonioxUsageStatus = nil
+        } catch {
+            sonioxUsageStatus = error.localizedDescription
+        }
+    }
 
     private func hotkeyRow(_ title: String, label: String, target: HotkeyTarget) -> some View {
         HStack {
@@ -399,6 +574,7 @@ struct SettingsSnapshot: Equatable {
     var pauseMedia = SettingsStore.shared.pauseMediaWhileRecording
     var appearance = SettingsStore.shared.appearance
     var asrEngine = SettingsStore.shared.asrEngine
+    var sonioxRegion = SettingsStore.shared.sonioxRegion
     var uiLanguage = SettingsStore.shared.uiLanguage
     var cleanDictation = SettingsStore.shared.cleanDictation
     var cleanMeetings = SettingsStore.shared.cleanMeetings
@@ -423,7 +599,11 @@ struct SettingsSnapshot: Equatable {
         if language != old.language { s.language = language }
         if autoLanguages != old.autoLanguages { s.autoLanguages = autoLanguages }
         if whisperModel != old.whisperModel { s.whisperModel = whisperModel }
-        if asrEngine != old.asrEngine { s.asrEngine = asrEngine }
+        if asrEngine != old.asrEngine {
+            s.asrEngine = asrEngine
+            Task { await Transcriber.shared.selectEngine(asrEngine) }
+        }
+        if sonioxRegion != old.sonioxRegion { s.sonioxRegion = sonioxRegion }
         if pushToTalk != old.pushToTalk { s.pushToTalk = pushToTalk }
         if showHUD != old.showHUD { s.showHUD = showHUD }
         if appearance != old.appearance { Appearance.set(appearance) }

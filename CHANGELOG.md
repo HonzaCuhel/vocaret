@@ -6,6 +6,11 @@ change behaviour and defaults.
 ## [Unreleased] — 0.3.0
 
 ### Added
+- Optional Soniox Live engine with replaceable realtime text, EU/US project
+  selection, protected API-key storage, and automatic local Whisper fallback.
+- Exact current-month `stt-rt-v5` spend, request count, and audio duration in
+  Settings, loaded from the selected Soniox project's usage API.
+- A responsive GitHub Pages installation and usage guide under `docs/`.
 - Appearance (Follow System / Light / Dark) in the menu and Settings.
 - Czech user interface (Settings → Interface language; ~150 strings), applied
   live; auto-detect language checklist (12 languages).
@@ -17,6 +22,8 @@ change behaviour and defaults.
 - Confirmation before clearing history or deleting a transcript.
 
 ### Changed
+- The recording HUD now grows to at most four lines, keeps the latest four
+  sentences visible during long speech, and centers short results.
 - Uniform title-bar height on every tab (one window-owned toolbar).
 - Short dictations (< 3 s) reuse the last detected language — one encoder pass
   instead of three (one-word dictation 2.2 s → 0.8 s).

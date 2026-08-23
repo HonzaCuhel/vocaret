@@ -12,7 +12,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         statusController = StatusItemController(dictation: dictation, meeting: meeting)
         registerHotkeys()
         LLMCleaner.shared.reapStaleServer()
-        if SettingsStore.shared.cleanDictation { LLMCleaner.shared.warmUp() }
         MediaPauser.shared.primePermissions()
         registerDebugIPC()
 
@@ -23,23 +22,31 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             MainWindowController.shared.show()
         }
 
-        // Preload Whisper so the first dictation is instant. First launch
-        // downloads the model (~1.6 GB), so surface that in the HUD.
+        // Preload only the selected local engine. Soniox uses no local ASR RAM,
+        // and opting out of a resident model defers loading until first use.
         Task { @MainActor in
-            let modelPresent = FileManager.default.fileExists(
-                atPath: SettingsStore.shared.modelsDir.appendingPathComponent("models").path
-            )
-            if !modelPresent {
-                HUD.shared.flash("Downloading Whisper model (one-time, ~1.6 GB)…", seconds: 6)
+            let settings = SettingsStore.shared
+            let target = ModelLifecyclePolicy.preloadTarget(engine: settings.asrEngine)
+            if target != .none, settings.keepModelLoaded {
+                HUD.shared.flash("Preparing the selected speech model…", seconds: 4)
+                await Transcriber.shared.preload()
             }
-            await Transcriber.shared.preload()
-            let ready = await Transcriber.shared.isReady
+            let ready: Bool
+            if target == .none {
+                ready = await Transcriber.shared.isReady
+            } else if !settings.keepModelLoaded {
+                ready = true
+            } else {
+                ready = await Transcriber.shared.isReady
+            }
             // Don't talk over an active recording the user already started.
             guard dictation.state == .idle, meeting.state == .idle else { return }
             if ready {
                 HUD.shared.flash("Vocaret ready — press \(SettingsStore.shared.dictationHotkeyLabel) and speak", seconds: 3)
+            } else if target == .none {
+                HUD.shared.flash("Add your Soniox API key in Settings to use live transcription", seconds: 5)
             } else {
-                HUD.shared.flash("Whisper model failed to load — check the log", seconds: 5)
+                HUD.shared.flash("Speech model failed to load — check the log", seconds: 5)
             }
             // Only now (never before the model is up — a modal alert would
             // stall the launch path) nag about the permission that makes

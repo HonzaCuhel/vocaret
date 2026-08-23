@@ -5,9 +5,9 @@
 <h1 align="center">Vocaret</h1>
 
 <p align="center">
-  <strong>Local speech-to-text for macOS.</strong><br>
+  <strong>Local-first speech-to-text for macOS.</strong><br>
   Hold a key, speak, let go — your words appear where your cursor is.<br>
-  Czech and English, mixed freely. Nothing is sent anywhere.
+  Czech and English, mixed freely. Local by default; optional live cloud mode.
 </p>
 
 <p align="center">
@@ -15,6 +15,10 @@
   <img src="https://img.shields.io/badge/Apple%20Silicon-required-black" alt="Apple Silicon required">
   <img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="Apache-2.0">
   <img src="https://img.shields.io/badge/version-0.2.0-orange" alt="v0.2.0">
+</p>
+
+<p align="center">
+  <a href="https://honzacuhel.github.io/vocaret/"><strong>Installation &amp; usage guide →</strong></a>
 </p>
 
 > **Status: v0.2.0, early.** Built by one person, working well daily on one Mac.
@@ -43,21 +47,26 @@
   where they exist) is matched to what the measurements show. Nothing is sent
   anywhere.
 - **Live recording pill** — the overlay shows a level meter driven by your
-  microphone while you speak, a timer, and pulses while transcribing.
+  microphone while you speak. With Soniox selected it grows to four text lines,
+  keeps the latest four sentences visible, and centers short results.
+- **Optional Soniox realtime mode** — bring your own API key for low-latency
+  cloud transcription. Vocaret keeps the complete recording in memory and
+  falls back to local Whisper if the connection fails. Settings shows the exact
+  current-month `stt-rt-v5` spend reported by Soniox.
 - **Music pauses while you talk** — Spotify or Music is paused when recording
   starts and resumed when it stops (only if it was playing, and only what
   Vocaret paused). macOS asks once for Automation permission per app.
 
-Everything runs on your Mac: Whisper via Core ML on the Neural Engine, and
-llama.cpp on localhost. See [PRIVACY.md](PRIVACY.md) for the precise details,
-including the two one-time model downloads and one caveat about `~/Documents`.
+Whisper, Parakeet, and llama.cpp run on your Mac. Soniox is explicit opt-in and
+sends live dictation audio to the selected EU or US endpoint. See
+[PRIVACY.md](PRIVACY.md) for the exact data flow, storage, and fallback details.
 
 ## Requirements
 
 - **Apple Silicon** Mac (M1 or newer) — Intel is not supported
 - **macOS 14.4+** (the meeting feature needs the Core Audio process tap API)
 - Xcode or the Command Line Tools, to build
-- ~700 MB disk for the speech model; ~2.4 GB more if you want the LLM cleanup
+- ~1.6 GB disk for the default speech model; ~2.4 GB more for LLM cleanup
 
 ## Install
 
@@ -66,7 +75,7 @@ means macOS trusts the app you built — no Gatekeeper warnings, no unsigned
 download to talk yourself into.
 
 ```bash
-git clone https://github.com/<your-account>/vocaret.git
+git clone https://github.com/HonzaCuhel/vocaret.git
 cd vocaret
 ./scripts/build_app.sh --install
 ```
@@ -117,6 +126,18 @@ push-to-talk on/off, the recording overlay, AI cleanup toggles, **Copy Last
 Dictation**, and **Open Dictation History** — so a transcript is never lost even
 if insertion fails.
 
+### Soniox live setup
+
+1. Create a Soniox project and copy its API key.
+2. Open **Settings → Transcription**, select **Soniox Live**, and paste the key.
+3. Pick the endpoint that matches the project: a US key uses **United States**;
+   EU processing requires an EU project key and **European Union**.
+4. Connect. Settings then loads the exact month-to-date realtime cost, request
+   count, and audio duration from Soniox; use the refresh button to update it.
+
+Soniox is optional and paid. If it is disconnected, select Whisper or Parakeet
+to keep transcription entirely local.
+
 `⌃⌥D` rather than `⌃⌥Space` because on Macs with more than one keyboard layout,
 `⌃⌥Space` is macOS's own input-source switcher.
 
@@ -148,6 +169,11 @@ defaults write com.jancuhel.vocaret whisperModel openai_whisper-large-v3-v202409
 # language control — on short or mixed cs/en utterances it drifts ("git hub",
 # "Ah no" for "Ano"). Also in Settings → Speech engine. Downloads ~500 MB once.
 defaults write com.jancuhel.vocaret asrEngine parakeet   # or: whisper
+
+# Optional live provider: save the API key in Settings (never UserDefaults),
+# choose EU or US processing, then select Soniox as the speech engine.
+defaults write com.jancuhel.vocaret sonioxRegion eu      # or: us
+defaults write com.jancuhel.vocaret asrEngine soniox
 
 # Change the dictation hotkey (Carbon key code + modifier mask:
 # ctrl 0x1000, opt 0x800, shift 0x200, cmd 0x100, ORed together).
@@ -193,7 +219,8 @@ transcribes in about a second once warm (one-word utterances ~0.8 s: short
 clips reuse the last detected language instead of running detection again).
 Resident memory with the model loaded is roughly 1–1.5 GB, most of it
 memory-mapped weights macOS can reclaim. Parakeet (optional engine) transcribes
-the same clips in 0.1–0.4 s.
+the same clips in 0.1–0.4 s. Soniox streams partial text without loading either
+local ASR model; network latency and paid usage replace local compute.
 
 The cleanup LLM is nearly free when idle: `llama-server` stays running but
 **sleeps** (unloads the model, ~80 MB resident) after 2–5 idle minutes and wakes
@@ -211,6 +238,7 @@ rm -rf ~/Applications/Vocaret.app
 rm -rf ~/Library/Application\ Support/Vocaret    # models, dictation history
 rm -rf ~/Documents/Vocaret                        # meeting transcripts and audio
 defaults delete com.jancuhel.vocaret
+security delete-generic-password -s com.jancuhel.vocaret.api-key -a soniox  # if saved
 ```
 
 Then remove Vocaret from System Settings → Privacy & Security → Accessibility,
@@ -219,7 +247,7 @@ Microphone and System Audio Recording.
 ## Development
 
 ```bash
-swift test                                  # 27 unit tests, no network or models needed
+swift test                                  # unit tests; no network or models needed
 swift build
 .build/debug/Vocaret --transcribe audio.wav [--language auto|cs|en]
 

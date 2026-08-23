@@ -63,11 +63,24 @@ codesign --verify --deep "$APP"
 echo "==> Built $APP"
 
 if [[ "${1:-}" == "--install" ]]; then
-    # pkill, not osascript: AppleScript "quit app" needs Automation permission
-    # and fails silently without it, leaving the OLD binary running so that
-    # `open -a` just re-activates stale code after the install.
-    pkill -x Vocaret 2>/dev/null || true
-    sleep 1
+    # AppleScript "quit app" needs Automation permission and can silently fail.
+    # Terminate only the installed Vocaret process, then force it down if a
+    # blocked framework call prevents graceful termination. Otherwise `open`
+    # merely re-activates the stale binary after the bundle is replaced.
+    INSTALLED_EXECUTABLE="$HOME/Applications/Vocaret.app/Contents/MacOS/Vocaret"
+    RUNNING_PIDS=$(pgrep -f "^${INSTALLED_EXECUTABLE}$" || true)
+    if [[ -n "$RUNNING_PIDS" ]]; then
+        kill -TERM $RUNNING_PIDS 2>/dev/null || true
+        for _ in {1..10}; do
+            sleep 0.2
+            RUNNING_PIDS=$(pgrep -f "^${INSTALLED_EXECUTABLE}$" || true)
+            [[ -z "$RUNNING_PIDS" ]] && break
+        done
+        if [[ -n "$RUNNING_PIDS" ]]; then
+            echo "==> Force-stopping an unresponsive installed Vocaret"
+            kill -KILL $RUNNING_PIDS
+        fi
+    fi
     mkdir -p "$HOME/Applications"
     rm -rf "$HOME/Applications/Vocaret.app"
     cp -R "$APP" "$HOME/Applications/Vocaret.app"

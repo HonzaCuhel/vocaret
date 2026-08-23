@@ -1,5 +1,21 @@
 import AppKit
 
+private enum LiveDictationConfigurationError: Error, LocalizedError {
+    case missingSonioxKey
+
+    var errorDescription: String? {
+        switch self {
+        case .missingSonioxKey:
+            return "Add your Soniox API key in Settings before selecting live transcription."
+        }
+    }
+}
+
+private struct LiveAudioFeedError: Error, LocalizedError, Sendable {
+    let message: String
+    var errorDescription: String? { message }
+}
+
 /// Hotkey → record → transcribe → (optionally clean) → paste at caret.
 @MainActor
 public final class DictationController {
@@ -22,12 +38,23 @@ public final class DictationController {
     private var releasedWhileStarting = false
     /// The transcribe/clean/paste job, kept so Esc can abort a slow cleanup.
     private var job: Task<Void, Never>?
+    private var jobGeneration = 0
+    private var activeJobGeneration: Int?
 
     /// A transcription started while the user was still holding the hotkey,
     /// during a pause in speech. `sampleCount` is how much audio it covers, so
     /// finish() can check that nothing was said afterwards before trusting it.
     private var speculative: (sampleCount: Int, task: Task<String, Error>)?
     private var speechWatcher: Task<Void, Never>?
+    private var liveSession: (any LiveTranscriptionSession)?
+    private var liveAudioBuffer: LiveAudioChunkBuffer?
+    private var liveAudioTask: Task<String?, Never>?
+    /// Ownership moves here after recording stops so Esc can still close a
+    /// stalled, potentially billable cloud stream while finalization is active.
+    private var finishingLiveSession: (any LiveTranscriptionSession)?
+    private var finishingLiveAudioTask: Task<String?, Never>?
+    private var finishingLiveOwner: Int?
+    private var recordingEngine = "whisper"
 
 
     public init() {}
@@ -74,6 +101,7 @@ public final class DictationController {
         case .recording:
             HotkeyManager.shared.endReleaseWatch()
             cancelSpeculation()
+            cancelLiveCapture()
             _ = recorder.stop()
             MediaPauser.shared.resumeIfPaused()
             unregisterCancelHotkey()
@@ -81,8 +109,18 @@ public final class DictationController {
             HUD.shared.hide()
             state = .idle
         case .transcribing:
+            let cancelledGeneration = activeJobGeneration
             job?.cancel()
-            job = nil
+            if let cancelledGeneration {
+                cancelFinishingLiveCapture(ownedBy: cancelledGeneration)
+                if DictationJobOwnership.isCurrent(
+                    cancelledGeneration,
+                    activeGeneration: activeJobGeneration
+                ) {
+                    activeJobGeneration = nil
+                    job = nil
+                }
+            }
             unregisterCancelHotkey()
             HUD.shared.flash("Dictation cancelled")
             state = .idle
@@ -95,6 +133,7 @@ public final class DictationController {
     public func stopForTermination() {
         guard state == .recording else { return }
         cancelSpeculation()
+        cancelLiveCapture()
         _ = recorder.stop()
         MediaPauser.shared.resumeIfPausedNow()
         state = .idle
@@ -111,9 +150,12 @@ public final class DictationController {
                 return
             }
             guard state == .idle else { return }
+            recordingEngine = SettingsStore.shared.asrEngine
             do {
+                try await prepareLiveCaptureIfNeeded(engine: recordingEngine)
                 try recorder.startInMemory()
             } catch {
+                cancelLiveCapture()
                 SoundPlayer.play(.error)
                 HUD.shared.flash("Could not start recording: \(error.localizedDescription)")
                 return
@@ -123,7 +165,7 @@ public final class DictationController {
             }
             SoundPlayer.play(.start)
             state = .recording
-            startSpeechWatcher()
+            if recordingEngine != "soniox" { startSpeechWatcher() }
             MediaPauser.shared.pauseIfPlaying()
             // Hide the LLM cold start behind the time the user spends speaking.
             if SettingsStore.shared.cleanDictation { LLMCleaner.shared.warmUp() }
@@ -140,7 +182,10 @@ public final class DictationController {
             let heldDuration = pressStarted.map { Date().timeIntervalSince($0) } ?? 0
             let holding = SettingsStore.shared.pushToTalk && !releasedWhileStarting
             HUD.shared.beginRecording(
-                text: holding ? "Release \(hotkey) to insert · Esc cancels" : "\(hotkey) to insert · Esc cancels",
+                status: recordingEngine == "soniox" ? L("Live · Soniox") : L("Local transcription"),
+                hint: holding
+                    ? "\(L("Release to insert")) · \(hotkey) · \(L("Esc cancels"))"
+                    : "\(L("Press to insert")) · \(hotkey) · \(L("Esc cancels"))",
                 level: { [weak recorder] in recorder?.level ?? 0 }
             )
             registerCancelHotkey()
@@ -161,6 +206,94 @@ public final class DictationController {
         HUD.shared.update("Audio device changed — press the hotkey to insert")
     }
 
+    private func prepareLiveCaptureIfNeeded(engine: String) async throws {
+        guard engine == "soniox" else { return }
+        guard let apiKey = try await AsyncAPIKeyAccess.shared.load(.soniox) else {
+            throw LiveDictationConfigurationError.missingSonioxKey
+        }
+
+        let settings = SettingsStore.shared
+        let languageHints = settings.language == "auto" ? settings.autoLanguages : [settings.language]
+        let terms = Self.sonioxTerms(from: Vocabulary.shared.terms)
+        let configuration = SonioxConfiguration(
+            apiKey: apiKey,
+            region: SonioxRegion(rawValue: settings.sonioxRegion) ?? .eu,
+            languageHints: languageHints,
+            terms: terms
+        )
+        let session = SonioxTranscriber(configuration: configuration)
+        try await session.start { partial in
+            await MainActor.run { HUD.shared.updatePartial(partial) }
+        }
+
+        let buffer = LiveAudioChunkBuffer(capacity: 64)
+        liveSession = session
+        liveAudioBuffer = buffer
+        recorder.onSamples = { samples in buffer.yield(samples) }
+        liveAudioTask = Task.detached(priority: .userInitiated) {
+            do {
+                for await samples in buffer.stream {
+                    try Task.checkCancellation()
+                    guard !buffer.hasOverflowed else {
+                        throw LiveAudioFeedError(
+                            message: "Soniox audio buffering overflowed while the connection was stalled."
+                        )
+                    }
+                    try await session.append(samples)
+                }
+                guard !buffer.hasOverflowed else {
+                    throw LiveAudioFeedError(
+                        message: "Soniox audio buffering overflowed while the connection was stalled."
+                    )
+                }
+                return nil
+            } catch {
+                buffer.finish()
+                await session.cancel()
+                return error.localizedDescription
+            }
+        }
+    }
+
+    private func cancelLiveCapture() {
+        recorder.onSamples = nil
+        liveAudioBuffer?.finish()
+        liveAudioBuffer = nil
+        liveAudioTask?.cancel()
+        liveAudioTask = nil
+        if let liveSession {
+            Task { await liveSession.cancel() }
+        }
+        liveSession = nil
+    }
+
+    private func cancelFinishingLiveCapture(ownedBy owner: Int? = nil) {
+        if let owner, finishingLiveOwner != owner { return }
+        finishingLiveAudioTask?.cancel()
+        finishingLiveAudioTask = nil
+        if let finishingLiveSession {
+            Task { await finishingLiveSession.cancel() }
+        }
+        finishingLiveSession = nil
+        finishingLiveOwner = nil
+    }
+
+    /// Soniox accepts up to 10,000 context characters. Leave margin for JSON
+    /// and future context fields while keeping user vocabulary order stable.
+    private static func sonioxTerms(from terms: [String]) -> [String] {
+        var result: [String] = []
+        var bytes = 0
+        for term in terms {
+            let trimmed = term.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+            let nextBytes = trimmed.utf8.count + 1
+            guard bytes + nextBytes <= 8_000 else { break }
+            result.append(trimmed)
+            bytes += nextBytes
+        }
+        return result
+    }
+
     /// While recording, watch for a pause in speech and start transcribing what
     /// we have so far. People pause before they let go of the key, so by the
     /// time they do the text is usually already decoded — which is where the
@@ -178,15 +311,30 @@ public final class DictationController {
 
     private func speculateIfSpeechPaused() async {
         guard state == .recording else { return }
+        let activity = recorder.activitySnapshot()
+        guard SpeechPause.shouldSpeculate(
+            on: activity,
+            alreadySpeculatedCount: speculative?.sampleCount ?? 0
+        ) else { return }
+
+        // The full copy is now made only when a real pause triggers a decode,
+        // not on every 150 ms watcher tick.
         let samples = recorder.snapshot()
-        guard SpeechPause.shouldSpeculate(on: samples, alreadySpeculatedCount: speculative?.sampleCount ?? 0) else { return }
 
         speculative?.task.cancel()
         let rate = MicRecorder.whisperSampleRate
         let count = samples.count
-        speculative = (count, Task.detached(priority: .userInitiated) {
+        let task = Task.detached(priority: .userInitiated) {
             try await Transcriber.shared.transcribe(samples: samples)
-        })
+        }
+        speculative = (count, task)
+        Task { [weak self] in
+            guard let text = try? await task.value,
+                  let self,
+                  self.state == .recording,
+                  self.speculative?.sampleCount == count else { return }
+            HUD.shared.updatePartial(text)
+        }
         Log.info("Speculating on \(String(format: "%.1f", Double(count) / rate))s after a pause")
     }
 
@@ -209,18 +357,40 @@ public final class DictationController {
     }
 
     private func finish() {
+        jobGeneration &+= 1
+        let thisJobGeneration = jobGeneration
+        activeJobGeneration = thisJobGeneration
         HotkeyManager.shared.endReleaseWatch()
         speechWatcher?.cancel()
         speechWatcher = nil
         let samples = recorder.stop()
+        recorder.onSamples = nil
         let headStart = usableSpeculation(finalSamples: samples)
         speculative = nil
+
+        // Stop accepting chunks, then let the one feed task drain every chunk
+        // already captured before asking Soniox to finalize.
+        liveAudioBuffer?.finish()
+        liveAudioBuffer = nil
+        let sessionBeingFinalized = liveSession
+        let audioTaskBeingFinalized = liveAudioTask
+        liveSession = nil
+        liveAudioTask = nil
+        finishingLiveSession = sessionBeingFinalized
+        finishingLiveAudioTask = audioTaskBeingFinalized
+        finishingLiveOwner = thisJobGeneration
+
         MediaPauser.shared.resumeIfPaused()
         let recordingSeconds = Double(samples.count) / MicRecorder.whisperSampleRate
         let transcriptionStarted = Date()
+        let engine = recordingEngine
+        let shouldClean = SettingsStore.shared.cleanDictation
         SoundPlayer.play(.stop)
         state = .transcribing
-        HUD.shared.beginTranscribing(text: "Transcribing… (Esc to cancel)")
+        HUD.shared.beginTranscribing(
+            status: engine == "soniox" ? L("Finalizing…") : L("Transcribing locally…"),
+            hint: L("Esc cancels")
+        )
         // Remember where the text should go — the user may switch apps while
         // we transcribe, and we must not paste into an unrelated window.
         let targetPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
@@ -228,24 +398,96 @@ public final class DictationController {
 
         job = Task { @MainActor in
             defer {
-                unregisterCancelHotkey()
-                if state == .transcribing { state = .idle }
-                job = nil
+                cancelFinishingLiveCapture(ownedBy: thisJobGeneration)
+                if DictationJobOwnership.isCurrent(
+                    thisJobGeneration,
+                    activeGeneration: activeJobGeneration
+                ) {
+                    activeJobGeneration = nil
+                    unregisterCancelHotkey()
+                    if state == .transcribing { state = .idle }
+                    job = nil
+                }
             }
             do {
-                var text: String
-                if let headStart {
-                    text = try await headStart.value
-                } else {
-                    text = try await Transcriber.shared.transcribe(samples: samples)
+                let hasLocalSpeech = !UtteranceChunker().chunks(in: samples).isEmpty
+                var cloudText: String?
+                var cloudLanguage: String?
+                var cloudFailure: String?
+                if let sessionBeingFinalized {
+                    if let feedFailure = await audioTaskBeingFinalized?.value {
+                        cloudFailure = feedFailure
+                        await sessionBeingFinalized.cancel()
+                    } else {
+                        do {
+                            let finalized = try await sessionBeingFinalized.finish()
+                                .trimmingCharacters(in: .whitespacesAndNewlines)
+                            if finalized.isEmpty {
+                                cloudFailure = "Soniox finalized without a transcript."
+                            } else {
+                                cloudText = finalized
+                                cloudLanguage = await sessionBeingFinalized.detectedLanguage()
+                            }
+                        } catch {
+                            try Task.checkCancellation()
+                            cloudFailure = error.localizedDescription
+                        }
+                    }
                 }
+                try Task.checkCancellation()
+
+                let cloudResult = LiveDictationPolicy.cloudResult(
+                    engine: engine,
+                    transcript: cloudText
+                )
+                let nextStep = LiveDictationPolicy.nextStep(
+                    engine: engine,
+                    cloudResult: cloudResult,
+                    hasLocalSpeech: hasLocalSpeech
+                )
+
+                var text: String
+                var modelLabel: String
+                var transcriptLanguage: String?
+                switch nextStep {
+                case .useCloudTranscript:
+                    text = cloudText ?? ""
+                    modelLabel = "Soniox stt-rt-v5"
+                    transcriptLanguage = SettingsStore.shared.language == "auto"
+                        ? cloudLanguage
+                        : SettingsStore.shared.language
+                case .transcribeLocally:
+                    if let cloudFailure {
+                        Log.warn("Soniox unavailable; using retained local audio (\(cloudFailure))")
+                        HUD.shared.clearPartial()
+                        HUD.shared.update(L("Cloud unavailable · Local fallback"))
+                    }
+                    if engine == "soniox" {
+                        let fallback = try await Transcriber.shared.transcribeCloudFallback(samples: samples)
+                        text = fallback.text
+                        transcriptLanguage = fallback.language
+                    } else if let headStart {
+                        text = try await headStart.value
+                        transcriptLanguage = await Transcriber.shared.lastLanguage
+                    } else {
+                        text = try await Transcriber.shared.transcribe(samples: samples)
+                        transcriptLanguage = await Transcriber.shared.lastLanguage
+                    }
+                    modelLabel = Self.localModelLabel(for: engine)
+                case .noTranscript:
+                    text = ""
+                    modelLabel = engine == "soniox" ? "Soniox stt-rt-v5" : Self.localModelLabel(for: engine)
+                    transcriptLanguage = nil
+                }
+
                 try Task.checkCancellation()
                 if text.isEmpty {
                     HUD.shared.flash("Nothing recognized")
                     return
                 }
-                if SettingsStore.shared.cleanDictation {
-                    HUD.shared.update("Cleaning up… (Esc to cancel)")
+                if shouldClean {
+                    HUD.shared.updatePartial(text)
+                    HUD.shared.update(L("Cleaning with local AI…"))
                     let raw = text
                     text = await LLMCleaner.shared.cleanDictation(text)
                     try Task.checkCancellation()
@@ -253,8 +495,14 @@ public final class DictationController {
                     // becomes an automatic correction, LLM or not.
                     Vocabulary.shared.learn(from: raw, to: text)
                 }
-                // Always applied, and cheap: your own spellings win.
-                text = TranscriptCorrector.apply(text, vocabulary: Vocabulary.shared)
+                // Always applied, and cheap: your own spellings win. Knowing
+                // which language was recognised makes the guard against wrong
+                // corrections much sharper.
+                text = TranscriptCorrector.apply(
+                    text,
+                    vocabulary: Vocabulary.shared,
+                    language: transcriptLanguage
+                )
                 // Record BEFORE inserting: whatever happens next, the
                 // transcript is retrievable from the menu and the History tab.
                 TranscriptHistory.shared.record(DictationRecord(
@@ -262,8 +510,8 @@ public final class DictationController {
                     text: text,
                     recordingSeconds: recordingSeconds,
                     transcriptionSeconds: Date().timeIntervalSince(transcriptionStarted),
-                    model: SettingsStore.shared.asrEngine == "parakeet" ? ParakeetEngine.modelLabel : SettingsStore.shared.whisperModel,
-                    cleaned: SettingsStore.shared.cleanDictation
+                    model: modelLabel,
+                    cleaned: shouldClean
                 ))
 
                 switch await TextInserter.insert(text, targetPID: targetPID) {
@@ -283,6 +531,10 @@ public final class DictationController {
                 Log.error("Dictation failed: \(error)")
             }
         }
+    }
+
+    private static func localModelLabel(for engine: String) -> String {
+        engine == "parakeet" ? ParakeetEngine.modelLabel : SettingsStore.shared.whisperModel
     }
 
     private func registerCancelHotkey() {

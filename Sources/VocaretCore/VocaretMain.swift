@@ -122,7 +122,9 @@ public enum VocaretMain {
                     let transcribed = Date()
                     var text = cleanup ? await LLMCleaner.shared.cleanDictation(raw) : raw
                     // Same order as the real dictation path.
-                    text = TranscriptCorrector.apply(text, vocabulary: Vocabulary.shared)
+                    text = TranscriptCorrector.apply(
+                        text, vocabulary: Vocabulary.shared,
+                        language: await Transcriber.shared.lastLanguage)
                     let done = Date()
                     FileHandle.standardError.write(Data(String(
                         format: "run %d: asr=%.2fs cleanup=%.2fs total=%.2fs | %@\n",

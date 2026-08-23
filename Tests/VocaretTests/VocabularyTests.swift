@@ -140,6 +140,34 @@ final class VocabularyTests: XCTestCase {
                        "Je to na GitHub, že?")
     }
 
+    // MARK: - Knowing the language of the sentence
+
+    func testEnglishTermMisheardInsideCzechIsSnappedToTheVocabulary() {
+        // Whisper writes "Slag" for "Slack" in Czech speech. "slag" IS a real
+        // English word, so the general guard protects it — but this sentence is
+        // Czech, where it is not a word at all, so the user's term wins.
+        let v = vocabulary(terms: ["Slack"])
+        XCTAssertEqual(TranscriptCorrector.apply("Napiš to na Slag.", vocabulary: v, language: "cs"),
+                       "Napiš to na Slack.")
+    }
+
+    func testTheSameWordIsLeftAloneInAnEnglishSentence() {
+        let v = vocabulary(terms: ["Slack"])
+        XCTAssertEqual(TranscriptCorrector.apply("We dumped it on the slag heap.", vocabulary: v, language: "en"),
+                       "We dumped it on the slag heap.")
+    }
+
+    func testRealCzechWordsSurviveEvenWhenNearATerm() {
+        // "kodex" is a real Czech word one edit from "Codex" — it must survive
+        // a Czech dictation.
+        let v = vocabulary(terms: ["Codex"])
+        XCTAssertEqual(TranscriptCorrector.apply("Podle kodexu to nejde.", vocabulary: v, language: "cs"),
+                       "Podle kodexu to nejde.")
+        // …while a non-word still snaps.
+        XCTAssertEqual(TranscriptCorrector.apply("Zeptej se Codexx.", vocabulary: v, language: "cs"),
+                       "Zeptej se Codex.")
+    }
+
     func testLearningIgnoresRewritesThatChangeWordCount() {
         let v = Vocabulary(persistence: nil)
         // The LLM removed a filler word — positions no longer line up, so

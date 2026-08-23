@@ -14,6 +14,11 @@ public actor Transcriber {
     /// ("Ano.", "Hotovo.") are decoded with it directly — one encoder pass
     /// instead of three — because people rarely switch language for one word.
     private var stickyLanguage: String?
+    /// Language of the most recent decode, for callers that want to know what
+    /// they are looking at (the vocabulary corrector treats a word differently
+    /// inside a Czech sentence than inside an English one).
+    private var _lastLanguage: String?
+    public var lastLanguage: String? { _lastLanguage }
     /// Below this, skip detection and trust `stickyLanguage`.
     static let stickyLanguageMaxSeconds = 3.0
     /// How many allowed languages to try when Whisper's own pick is not one of
@@ -24,26 +29,65 @@ public actor Transcriber {
     /// a second download/CoreML load of the same model.
     private var loadTask: Task<WhisperKit, Error>?
     private var unloadTask: Task<Void, Never>?
+    /// Invalidates an in-flight load if the user switches engines while the
+    /// underlying framework is inside a cancellation-insensitive operation.
+    private var modelGeneration = 0
 
     public var isReady: Bool {
-        get async { usingParakeet ? await ParakeetEngine.shared.isReady : whisper != nil }
+        get async {
+            switch ModelLifecyclePolicy.preloadTarget(engine: SettingsStore.shared.asrEngine) {
+            case .none:
+                return (try? await AsyncAPIKeyAccess.shared.load(.soniox)) != nil
+            case .whisper:
+                return whisper != nil
+            case .parakeet:
+                return await ParakeetEngine.shared.isReady
+            }
+        }
     }
 
     /// Called at app launch so the first dictation has no model-load latency.
     public func preload() async {
-        if SettingsStore.shared.asrEngine == "parakeet" {
+        switch ModelLifecyclePolicy.preloadTarget(engine: SettingsStore.shared.asrEngine) {
+        case .none:
+            return
+        case .parakeet:
             await ParakeetEngine.shared.preload()
-        } else {
+        case .whisper:
             _ = try? await ensureLoaded()
         }
     }
 
-    public func unload() {
+    public func unload() async {
+        modelGeneration &+= 1
+        loadTask?.cancel()
+        loadTask = nil
         unloadTask?.cancel()
         unloadTask = nil
         whisper = nil
+        stickyLanguage = nil
+        _lastLanguage = nil
+        await ParakeetEngine.shared.unload()
         Log.info("Whisper model unloaded")
-        Task { await ParakeetEngine.shared.unload() }
+    }
+
+    /// Drop the inactive engine before loading the newly selected local one.
+    /// Soniox deliberately stops after unloading so cloud mode consumes no
+    /// local ASR model RAM.
+    public func selectEngine(_ engine: String) async {
+        await unload()
+        guard ModelLifecyclePolicy.shouldApplySelection(
+            requestedEngine: engine,
+            currentEngine: SettingsStore.shared.asrEngine
+        ) else { return }
+        switch ModelLifecyclePolicy.preloadTarget(engine: engine) {
+        case .none:
+            return
+        case .whisper:
+            _ = try? await ensureLoaded()
+        case .parakeet:
+            await ParakeetEngine.shared.preload()
+        }
     }
 
     private var usingParakeet: Bool { SettingsStore.shared.asrEngine == "parakeet" }
@@ -75,6 +119,31 @@ public actor Transcriber {
         }
         let segments = try await transcribeChunked(kit, samples, allowSticky: true)
         return segments.map(\.text).joined(separator: " ")
+    }
+
+    /// Soniox fallback is intentionally transient: return both text and the
+    /// detected language, then release the local model even when the user's
+    /// normal preference is to keep local engines warm.
+    func transcribeCloudFallback(samples: [Float]) async throws -> (text: String, language: String?) {
+        let fallbackGeneration = modelGeneration
+        do {
+            let text = try await transcribe(samples: samples)
+            let output = (text: text, language: _lastLanguage)
+            await unloadCloudFallbackIfStillOwned(generation: fallbackGeneration)
+            return output
+        } catch {
+            await unloadCloudFallbackIfStillOwned(generation: fallbackGeneration)
+            throw error
+        }
+    }
+
+    private func unloadCloudFallbackIfStillOwned(generation: Int) async {
+        guard ModelLifecyclePolicy.shouldUnloadCloudFallback(
+            startingGeneration: generation,
+            currentGeneration: modelGeneration,
+            currentEngine: SettingsStore.shared.asrEngine
+        ) else { return }
+        await unload()
     }
 
     /// Meeting path: audio file in, timestamped segments out. Always chunked
@@ -131,6 +200,7 @@ public actor Transcriber {
             let clean = Self.sanitize(text)
             if confidence < 0.6 { Log.warn("Parakeet low confidence \(confidence) for chunk at \(offset)s") }
             guard !clean.isEmpty else { return [] }
+            _lastLanguage = hint
             return [SpokenSegment(start: offset, end: offset + Double(rawSamples.count) / MicRecorder.whisperSampleRate, text: clean)]
         }
         guard let kit else { throw TranscriberError.engineNotLoaded }
@@ -180,6 +250,7 @@ public actor Transcriber {
         } else {
             results = try await kit.transcribe(audioArray: samples, decodeOptions: decodeOptions(language: settings.language))
         }
+        _lastLanguage = results.first?.language ?? (settings.language == "auto" ? stickyLanguage : settings.language)
         return results.flatMap { result in
             result.segments.map { segment in
                 SpokenSegment(
@@ -198,20 +269,35 @@ public actor Transcriber {
         unloadTask?.cancel()
         unloadTask = nil
         if let whisper { return whisper }
-        if let loadTask { return try await loadTask.value } // join the in-flight load
+        let generation = modelGeneration
+        if let loadTask {
+            let kit = try await loadTask.value
+            guard generation == modelGeneration else { throw CancellationError() }
+            return kit
+        }
 
         let task = Task<WhisperKit, Error> { [self] in
             let wanted = SettingsStore.shared.whisperModel
             do {
-                return try await self.load(model: wanted)
+                let kit = try await self.load(model: wanted)
+                try Task.checkCancellation()
+                return kit
+            } catch is CancellationError {
+                throw CancellationError()
             } catch {
+                try Task.checkCancellation()
                 Log.warn("Whisper model '\(wanted)' failed to load (\(error.localizedDescription)); trying fallback")
-                return try await self.load(model: SettingsStore.fallbackWhisperModel)
+                let kit = try await self.load(model: SettingsStore.fallbackWhisperModel)
+                try Task.checkCancellation()
+                return kit
             }
         }
         loadTask = task
-        defer { loadTask = nil }
+        defer {
+            if generation == modelGeneration { loadTask = nil }
+        }
         let kit = try await task.value
+        guard generation == modelGeneration else { throw CancellationError() }
         whisper = kit
         return kit
     }

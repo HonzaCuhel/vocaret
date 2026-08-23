@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#02030d">
+  <meta name="description" content="Vocaret is a local-first macOS dictation app with optional Soniox live transcription for Czech and English.">
+  <title>Vocaret — local-first dictation for macOS</title>
+  <link rel="icon" href="assets/icon.png">
+  <link rel="stylesheet" href="styles.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <!--
+  THESIS: Live dictation is demonstrated at working scale; this page refuses the generic app-mockup hero.
+  OWN-WORLD: Deep caption-monitor fields, electric Vocaret violet, off-white type, signal red, safe-area geometry, and condensed display lettering.
+  STORY: Understand local-first dictation, see optional live words, then install from verified source and grant the required permissions.
+  FIRST VIEWPORT: A slim nav and large wordmark frame a four-line floating transcript; the source-install action stays visible at left.
+  FORM: Caption control room, grounded direction 7, seed 95bf8a3e.
+  FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance
+  -->
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="site-header" aria-label="Primary navigation">
+    <a class="brand" href="#top" aria-label="Vocaret home">
+      <img src="assets/icon.png" width="40" height="40" alt="">
+      <span>Vocaret</span>
+    </a>
+    <nav aria-label="Main">
+      <a href="#how">How it works</a>
+      <a href="#install">Install</a>
+      <a href="https://github.com/HonzaCuhel/vocaret/blob/main/PRIVACY.md">Privacy</a>
+      <a class="nav-github" href="https://github.com/HonzaCuhel/vocaret">GitHub</a>
+    </nav>
+  </header>
+
+  <main id="main">
+    <section class="hero" id="top" aria-labelledby="hero-title">
+      <div class="safe-frame" aria-hidden="true">
+        <span class="safe-label safe-label-left">TITLE SAFE</span>
+        <span class="safe-label safe-label-right">ACTION SAFE</span>
+        <span class="frame-cross cross-a"></span>
+        <span class="frame-cross cross-b"></span>
+        <span class="frame-cross cross-c"></span>
+      </div>
+
+      <div class="hero-copy">
+        <h1 id="hero-title">Vocaret</h1>
+        <p class="hero-promise">Speak. Release. Keep moving.</p>
+        <p class="hero-summary">Hold one shortcut and speak. Vocaret inserts the result where you are already working—local by default, live through Soniox when you choose it.</p>
+        <div class="hero-actions">
+          <a class="button button-primary" href="#install">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0 5-5m-5 5-5-5M5 20h14"/></svg>
+            Install from source
+          </a>
+          <a class="text-link" href="#how">See the workflow <span aria-hidden="true">↓</span></a>
+        </div>
+        <p class="requirements">macOS 14.4+ <span>·</span> Apple Silicon <span>·</span> Apache-2.0</p>
+      </div>
+
+      <div class="caption-stage" aria-label="Illustration of Vocaret live dictation">
+        <p class="demo-label">Example live transcript</p>
+        <div class="orbit" aria-hidden="true"></div>
+        <div class="transcript-panel">
+          <div class="live-cluster" aria-hidden="true">
+            <span class="live-dot"></span>
+            <span class="timer">00:12</span>
+            <span class="meter"><i></i><i></i><i></i><i></i><i></i></span>
+          </div>
+          <div class="transcript-copy" data-transcript aria-hidden="true">
+            <p>Capture the idea while it’s fresh.</p>
+            <p>Dneska projdu výsledky.</p>
+            <p>Audio stays local on this Mac.</p>
+            <p class="is-current is-short">Let’s ship it.<span class="cursor"></span></p>
+          </div>
+          <span class="sr-only">A four-line live transcript appears while the speaker talks.</span>
+          <kbd>⌃⌥D <span>release to insert</span></kbd>
+        </div>
+      </div>
+    </section>
+
+    <section class="workflow" id="how" aria-labelledby="workflow-title">
+      <div class="section-intro">
+        <h2 id="workflow-title">Three beats. No detour.</h2>
+        <p>The overlay never steals focus. Your cursor stays in the app where the words belong.</p>
+      </div>
+      <ol class="workflow-steps">
+        <li>
+          <span class="step-number">01</span>
+          <h3>Hold</h3>
+          <p>Press and hold <kbd>⌃⌥D</kbd>. A quick tap can toggle recording instead.</p>
+        </li>
+        <li>
+          <span class="step-number">02</span>
+          <h3>Speak</h3>
+          <p>Watch up to four lines of live text with Soniox, or keep every sample local.</p>
+        </li>
+        <li>
+          <span class="step-number">03</span>
+          <h3>Release</h3>
+          <p>The transcript is inserted at your cursor. If insertion fails, it is copied.</p>
+        </li>
+      </ol>
+    </section>
+
+    <section class="engine-section" aria-labelledby="engine-title">
+      <div class="engine-heading">
+        <h2 id="engine-title">Choose where the work happens.</h2>
+        <p>Vocaret does not hide the trade. Local engines spend compute. Soniox spends API credit and returns words while you speak.</p>
+      </div>
+      <div class="engine-rows">
+        <article>
+          <div>
+            <span class="engine-status local-status">On this Mac</span>
+            <h3>Whisper or Parakeet</h3>
+          </div>
+          <p>Audio stays local. Whisper prioritizes bilingual accuracy; Parakeet prioritizes speed on clean speech.</p>
+        </article>
+        <article>
+          <div>
+            <span class="engine-status live-status">Optional cloud</span>
+            <h3>Soniox Live</h3>
+          </div>
+          <p>Use your own regional project key. Settings shows the exact current-month <code>stt-rt-v5</code> cost from Soniox.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="install-section" id="install" aria-labelledby="install-title">
+      <div class="install-copy">
+        <h2 id="install-title">Build the app you will trust with your voice.</h2>
+        <p>Vocaret is distributed as source. The install script builds, places, and launches <code>~/Applications/Vocaret.app</code>.</p>
+        <ol class="command-list">
+          <li>
+            <div><strong>Clone</strong><span>Fetch the current repository.</span></div>
+            <div class="code-row"><code id="clone-command">git clone https://github.com/HonzaCuhel/vocaret.git</code><button class="copy-button" data-copy="clone-command" aria-label="Copy clone command"><span>Copy</span></button></div>
+          </li>
+          <li>
+            <div><strong>Enter</strong><span>Move into the project.</span></div>
+            <div class="code-row"><code id="cd-command">cd vocaret</code><button class="copy-button" data-copy="cd-command" aria-label="Copy change-directory command"><span>Copy</span></button></div>
+          </li>
+          <li>
+            <div><strong>Install</strong><span>Build and launch the app.</span></div>
+            <div class="code-row"><code id="install-command">./scripts/build_app.sh --install</code><button class="copy-button" data-copy="install-command" aria-label="Copy install command"><span>Copy</span></button></div>
+          </li>
+        </ol>
+      </div>
+
+      <aside class="permission-guide" aria-labelledby="permission-title">
+        <h3 id="permission-title">First launch</h3>
+        <p>macOS asks only when a feature needs access.</p>
+        <dl>
+          <div><dt>Microphone</dt><dd>Record your voice.</dd></div>
+          <div><dt>Accessibility</dt><dd>Insert text at the cursor.</dd></div>
+          <div><dt>System Audio</dt><dd>Optional meeting transcription.</dd></div>
+          <div><dt>Automation</dt><dd>Optional music pause and resume.</dd></div>
+        </dl>
+        <p class="honesty-note">Not notarized. An ad-hoc rebuild can require granting Accessibility again.</p>
+      </aside>
+    </section>
+
+    <section class="use-section" id="use" aria-labelledby="use-title">
+      <div>
+        <h2 id="use-title">Use it without changing how you work.</h2>
+        <p>Vocaret lives in the menu bar. Open its window only for history, meetings, the speaking coach, and settings.</p>
+      </div>
+      <div class="shortcut-table" role="table" aria-label="Vocaret keyboard shortcuts">
+        <div role="row"><span role="cell">Dictate</span><kbd role="cell">⌃⌥D</kbd></div>
+        <div role="row"><span role="cell">Cancel</span><kbd role="cell">Esc</kbd></div>
+        <div role="row"><span role="cell">Meeting</span><kbd role="cell">⌃⌥M</kbd></div>
+      </div>
+    </section>
+
+    <section class="soniox-setup" aria-labelledby="soniox-title">
+      <div>
+        <h2 id="soniox-title">Add live words when you want them.</h2>
+        <p>Create a Soniox project, copy its API key, then open <strong>Settings → Transcription → Soniox Live</strong>. Select the region that matches the key and connect.</p>
+      </div>
+      <div class="region-note">
+        <strong>US is not the same as EU.</strong>
+        <p>A US project key uses the United States endpoint. EU processing requires an EU project key and the European Union endpoint.</p>
+        <a class="text-link" href="https://soniox.com/docs/data-residency">Read Soniox region guidance <span aria-hidden="true">↗</span></a>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div>
+      <img src="assets/icon.png" width="48" height="48" alt="">
+      <p><strong>Vocaret</strong><br><span>Local first. Live when asked.</span></p>
+    </div>
+    <p><a href="https://github.com/HonzaCuhel/vocaret">Source on GitHub</a> · <a href="https://github.com/HonzaCuhel/vocaret/blob/main/PRIVACY.md">Privacy</a> · Apache-2.0</p>
+  </footer>
+</body>
+</html>
