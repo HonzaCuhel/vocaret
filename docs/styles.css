@@ -563,6 +563,11 @@ footer {
   margin-bottom: 36px;
 }
 
+.engine-heading {
+  grid-template-columns: minmax(240px, 0.7fr) minmax(300px, 1.3fr);
+  gap: 50px;
+}
+
 h2 {
   max-width: 12ch;
   font-family: var(--display);
@@ -655,7 +660,8 @@ code {
 }
 
 .engine-rows article > div {
-  display: flex;
+  display: grid;
+  grid-template-columns: 160px minmax(0, 1fr);
   align-items: baseline;
   gap: 18px;
 }
