@@ -10,7 +10,32 @@ const transcriptLines = [
 
 const transcript = document.querySelector("[data-transcript]");
 const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+const revealElements = document.querySelectorAll("[data-reveal]");
 let transcriptIndex = 4;
+
+function revealAll() {
+  revealElements.forEach((element) => element.classList.add("is-visible"));
+}
+
+if (!("IntersectionObserver" in window) || reduceMotion.matches) {
+  revealAll();
+} else {
+  const revealObserver = new IntersectionObserver((entries) => {
+    entries.forEach((entry) => {
+      if (!entry.isIntersecting) return;
+      entry.target.classList.add("is-visible");
+      revealObserver.unobserve(entry.target);
+    });
+  }, {
+    rootMargin: "0px 0px -8%",
+    threshold: 0.12,
+  });
+
+  revealElements.forEach((element) => revealObserver.observe(element));
+  reduceMotion.addEventListener("change", (event) => {
+    if (event.matches) revealAll();
+  }, { once: true });
+}
 
 function renderTranscript() {
   if (!transcript) return;

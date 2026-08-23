@@ -21,58 +21,37 @@
   <a href="https://honzacuhel.github.io/vocaret/"><strong>Project website · Installation &amp; usage guide →</strong></a>
 </p>
 
-> **Status: v0.2.0, early.** Built by one person, working well daily on one Mac.
-> Expect rough edges. Please read [what this is not](#what-this-is-not) before
-> installing.
+> **Status: v0.2.0, early.** Used daily on one Mac; expect rough edges and read
+> [the current limitations](#limitations) before installing.
 
 ## What it does
 
-- **Dictation anywhere** — hold `⌃⌥D`, speak, release. The text is inserted at
-  your caret in any app. A quick tap toggles recording instead, if you prefer.
-- **Bilingual by design** — Czech and English are detected *per utterance*, so a
-  meeting that switches languages mid-conversation transcribes correctly. (Most
-  tools apply one language per 30-second window and lose one of them.)
-- **Meeting transcription** — `⌃⌥M` records your microphone *and* your Mac's
-  audio output, producing a speaker-labelled transcript (`Me` / `Them`). No
-  virtual audio driver needed.
-- **Optional local cleanup** — a small language model removes filler words and
-  structures meeting notes into a summary and action items.
-- **A window, when you want one** — menu bar → *Open Vocaret* (or ⌘O in the
-  menu): a dashboard (words, speaking pace, time saved vs typing, streak, peak
-  hours), your full dictation history with search and copy, the meeting
-  transcripts, settings with a shortcut recorder, and a **speaking coach**.
-- **Speaking coach** — reads your last two weeks of dictation *on this Mac* and
-  measures filler words, sentence length, vocabulary richness and pace; the local
-  LLM adds a short personal note, and a curated reading list (Czech editions
-  where they exist) is matched to what the measurements show. Nothing is sent
-  anywhere.
-- **Live recording pill** — the overlay shows a level meter driven by your
-  microphone while you speak. With Soniox selected it grows to four text lines,
-  keeps the latest four sentences visible, and centers short results.
-- **Optional Soniox realtime mode** — bring your own API key for low-latency
-  cloud transcription. Vocaret keeps the complete recording in memory and
-  falls back to local Whisper if the connection fails. Settings shows the exact
-  current-month `stt-rt-v5` spend reported by Soniox.
-- **Music pauses while you talk** — Spotify or Music is paused when recording
-  starts and resumed when it stops (only if it was playing, and only what
-  Vocaret paused). macOS asks once for Automation permission per app.
+- **Dictation anywhere** — hold `⌃⌥D`, speak, and release to insert text at the
+  cursor. A quick tap toggles recording.
+- **Czech and English together** — language is detected per utterance.
+- **Local or live** — use local Whisper/Parakeet, or bring a Soniox key for live
+  words with automatic local fallback.
+- **Meeting transcription** — `⌃⌥M` captures microphone and system audio as
+  `Me` / `Them`, without a virtual audio driver.
+- **Useful extras** — optional local cleanup, searchable history, speaking
+  metrics, meeting summaries, and automatic Spotify/Music pause and resume.
+- **Focused overlay** — see microphone level and up to four recent live lines
+  without leaving the app where you are typing.
 
-Whisper, Parakeet, and llama.cpp run on your Mac. Soniox is explicit opt-in and
-sends live dictation audio to the selected EU or US endpoint. See
-[PRIVACY.md](PRIVACY.md) for the exact data flow, storage, and fallback details.
+Whisper, Parakeet, and llama.cpp run locally. Soniox is explicit opt-in and
+sends live audio to the selected EU or US endpoint. See [PRIVACY.md](PRIVACY.md)
+for the exact data flow and retention behavior.
 
 ## Requirements
 
-- **Apple Silicon** Mac (M1 or newer) — Intel is not supported
-- **macOS 14.4+** (the meeting feature needs the Core Audio process tap API)
+- **Apple Silicon** Mac (M1 or newer)
+- **macOS 14.4+**
 - Xcode or the Command Line Tools, to build
-- ~1.6 GB disk for the default speech model; ~2.4 GB more for LLM cleanup
+- ~1.6 GB for the default speech model; ~2.4 GB more for optional cleanup
 
 ## Install
 
-Vocaret is distributed as source. Building it yourself takes about a minute and
-means macOS trusts the app you built — no Gatekeeper warnings, no unsigned
-download to talk yourself into.
+Vocaret is distributed as source:
 
 ```bash
 git clone https://github.com/HonzaCuhel/vocaret.git
@@ -80,25 +59,19 @@ cd vocaret
 ./scripts/build_app.sh --install
 ```
 
-That builds `~/Applications/Vocaret.app` and launches it. The window opens on
-first launch; afterwards Vocaret lives in the menu bar (microphone icon) and the
-window is one click away (*Open Vocaret*).
+This builds, installs, and launches `~/Applications/Vocaret.app`. Vocaret then
+lives in the menu bar.
 
-Optional, for the AI cleanup features:
+Optional local cleanup:
 
 ```bash
-./scripts/setup_llm.sh      # installs llama.cpp via Homebrew + downloads a 2.4 GB model
+./scripts/setup_llm.sh
 ```
-
-Without it, Vocaret still transcribes perfectly; only the cleanup features are
-skipped, and it tells you so.
 
 ### First run
 
-The speech model (~1.6 GB, Whisper large-v3-turbo) downloads on first launch.
-The menu bar shows the progress; until it finishes, dictation will wait.
-
-macOS will ask for permissions as you first use each feature:
+The default Whisper model downloads on first launch. macOS asks for permissions
+only when a feature needs them:
 
 | Permission | When | Needed for |
 |---|---|---|
@@ -107,9 +80,8 @@ macOS will ask for permissions as you first use each feature:
 | **System Audio Recording** | first meeting | hearing other participants |
 | **Automation (Spotify / Music)** | first recording while music plays | pausing and resuming your music |
 
-If Accessibility is missing, the menu-bar icon shows a warning badge and the
-menu offers a one-click fix. Without it, transcripts go to your clipboard
-instead of being typed.
+Without Accessibility, transcripts are copied to the clipboard instead of
+being inserted.
 
 ## Usage
 
@@ -120,125 +92,67 @@ instead of being typed.
 | Cancel | `Esc` |
 | Meeting transcription start/stop | `⌃⌥M` |
 
-Most settings live in the window (menu bar → *Open Vocaret* → Settings), including
-a shortcut recorder. The menu-bar menu keeps the essentials: language (Auto / Čeština / English),
-push-to-talk on/off, the recording overlay, AI cleanup toggles, **Copy Last
-Dictation**, and **Open Dictation History** — so a transcript is never lost even
-if insertion fails.
+Open the menu-bar window for history, meetings, metrics, shortcut recording, and
+settings. The menu also exposes the latest dictation if insertion fails.
 
 ### Soniox live setup
 
 1. Create a Soniox project and copy its API key.
-2. Open **Settings → Transcription**, select **Soniox Live**, and paste the key.
-3. Pick the endpoint that matches the project: a US key uses **United States**;
-   EU processing requires an EU project key and **European Union**.
-4. Connect. Settings then loads the exact month-to-date realtime cost, request
-   count, and audio duration from Soniox; use the refresh button to update it.
+2. In **Settings → Transcription**, select **Soniox Live** and paste the key.
+3. Select the matching region: US keys use **United States**; EU processing
+   requires an EU project key and **European Union**.
+4. Connect. Settings shows current-month realtime cost, requests, and duration.
 
-Soniox is optional and paid. If it is disconnected, select Whisper or Parakeet
-to keep transcription entirely local.
+Soniox is optional and paid. Select Whisper or Parakeet for fully local use.
 
-`⌃⌥D` rather than `⌃⌥Space` because on Macs with more than one keyboard layout,
-`⌃⌥Space` is macOS's own input-source switcher.
+## Meeting privacy
 
-## Before you record a meeting
-
-Meeting mode records **everyone on the call**, not just you.
-
-In many countries you must tell the other participants first. In some — Germany
-(§201 StGB) among them — recording a private conversation without consent is a
-criminal offence, and within the EU such a recording is personal data under the
-GDPR. Vocaret shows a one-time warning and deletes the raw audio after
-transcribing by default, but **the legal responsibility is yours**.
-
-Practical advice: say out loud that you are recording, and wear headphones —
-otherwise your microphone picks up the other side too and it appears in both
-tracks.
+Meeting mode records everyone on the call. Tell participants first and follow
+the law in your jurisdiction; the legal responsibility is yours. Raw audio is
+deleted after transcription by default. Wear headphones to prevent the other
+side from appearing in both tracks.
 
 ## Configuration
 
-The Settings tab covers the common cases (shortcuts, language, model, AI cleanup,
-vocabulary, behaviour). Everything is also reachable via `defaults`:
+The Settings tab covers shortcuts, language, engine, cleanup, vocabulary, and
+behavior. Advanced options are also available through `defaults`:
 
 ```bash
-# Smaller/faster speech model (default: openai_whisper-large-v3-v20240930)
 defaults write com.jancuhel.vocaret whisperModel openai_whisper-large-v3-v20240930_626MB
-
-# Optional second engine: NVIDIA Parakeet TDT 0.6B v3 (Core ML via FluidAudio).
-# 3–5× faster than Whisper and excellent on clean Czech or English, but it has no
-# language control — on short or mixed cs/en utterances it drifts ("git hub",
-# "Ah no" for "Ano"). Also in Settings → Speech engine. Downloads ~500 MB once.
 defaults write com.jancuhel.vocaret asrEngine parakeet   # or: whisper
-
-# Optional live provider: save the API key in Settings (never UserDefaults),
-# choose EU or US processing, then select Soniox as the speech engine.
 defaults write com.jancuhel.vocaret sonioxRegion eu      # or: us
 defaults write com.jancuhel.vocaret asrEngine soniox
-
-# Change the dictation hotkey (Carbon key code + modifier mask:
-# ctrl 0x1000, opt 0x800, shift 0x200, cmd 0x100, ORed together).
-# Default is D (2) with ctrl+opt (6144).
-defaults write com.jancuhel.vocaret dictationKeyCode -int 2
-defaults write com.jancuhel.vocaret dictationModifiers -int 6144
-
-# Languages considered in Auto mode (default cs,en). If you speak something
-# else, set it here or Auto will force your speech into Czech or English.
 defaults write com.jancuhel.vocaret autoLanguages -array de en
-
-# Keep raw meeting audio instead of deleting it after transcription
 defaults write com.jancuhel.vocaret keepRecordings -bool true
-
-# Stop logging every dictation to disk
 defaults write com.jancuhel.vocaret keepDictationHistory -bool false
-
-# Free the model's RAM after 10 idle minutes instead of keeping it warm
 defaults write com.jancuhel.vocaret keepModelLoaded -bool false
 ```
 
-Restart Vocaret after changing hotkeys.
+Restart Vocaret after changing defaults.
 
-## What this is not
+## Limitations
 
-- **Not notarized.** There is no signed download, because notarization needs a
-  paid Apple Developer account. You build it yourself instead. If you would
-  rather not build software you have not read, that is a reasonable position —
-  do not install this.
-- **Not a polished product.** No auto-update, no speaker diarization beyond
-  Me/Them, no automatic meeting detection. Compare with [MacWhisper](https://goodsnooze.gumroad.com/l/macwhisper),
-  [VoiceInk](https://github.com/Beingpax/VoiceInk) or Wispr Flow if you want that.
-- **Not supported.** This is a personal project shared in case it is useful.
-  Issues are welcome; timely answers are not promised.
-- **Not tested broadly.** It has run on exactly one Mac, macOS 26, M3 Pro.
-- **Not for languages other than Czech and English** without changing
-  `autoLanguages` — Auto mode will otherwise confidently transcribe nonsense.
+- Source-only and not notarized; there is no signed download or auto-update.
+- Tested on one Apple Silicon Mac, not broad hardware or macOS combinations.
+- Meeting labels are `Me` / `Them`, not full speaker diarization.
+- Auto mode defaults to Czech and English; configure `autoLanguages` for others.
+- This is a personal project. Issues are welcome, but support is not guaranteed.
 
 ## Performance
 
-Whisper `large-v3-turbo` runs on the Neural Engine — a short dictation
-transcribes in about a second once warm (one-word utterances ~0.8 s: short
-clips reuse the last detected language instead of running detection again).
-Resident memory with the model loaded is roughly 1–1.5 GB, most of it
-memory-mapped weights macOS can reclaim. Parakeet (optional engine) transcribes
-the same clips in 0.1–0.4 s. Soniox streams partial text without loading either
-local ASR model; network latency and paid usage replace local compute.
-
-The cleanup LLM is nearly free when idle: `llama-server` stays running but
-**sleeps** (unloads the model, ~80 MB resident) after 2–5 idle minutes and wakes
-in about a second — Vocaret wakes it the moment a recording starts, so by the
-time Whisper finishes the model is ready. Awake it uses ~4.6 GB. Measured felt
-latency for cleanup: ~1 s warm, ~2.6 s from sleep.
-
-Lightest setup: `whisperModel openai_whisper-large-v3-v20240930_626MB` +
-`keepModelLoaded false` + AI cleanup off.
+Warm Whisper dictation typically finishes in about one second; Parakeet is
+faster on clean speech. Soniox streams partial text but uses network and paid
+API credit. For the lightest local setup, use the 626 MB Whisper model, set
+`keepModelLoaded false`, and disable cleanup.
 
 ## Uninstall
 
 ```bash
 rm -rf ~/Applications/Vocaret.app
-rm -rf ~/Library/Application\ Support/Vocaret    # models, dictation history
-rm -rf ~/Documents/Vocaret                        # meeting transcripts and audio
+rm -rf ~/Library/Application\ Support/Vocaret
+rm -rf ~/Documents/Vocaret
 defaults delete com.jancuhel.vocaret
-security delete-generic-password -s com.jancuhel.vocaret.api-key -a soniox  # if saved
+security delete-generic-password -s com.jancuhel.vocaret.api-key -a soniox
 ```
 
 Then remove Vocaret from System Settings → Privacy & Security → Accessibility,
@@ -247,45 +161,31 @@ Microphone and System Audio Recording.
 ## Development
 
 ```bash
-swift test                                  # unit tests; no network or models needed
+swift test
 swift build
 .build/debug/Vocaret --transcribe audio.wav [--language auto|cs|en]
-
-# Runtime self-tests that exercise real capture / LLM / paste paths.
-# They synthesize speech with `say` and trigger the normal permission prompts.
 open -W -a ~/Applications/Vocaret.app --args --selftest all 8 --out /tmp/selftest.log
-# modes: mic | tap | llm | meeting | keys | hud | all
-
-.build/release/Vocaret --coach                    # run the speaking coach headless
-.build/release/Vocaret --render-window /tmp/ui    # render every window section to PNG
+.build/release/Vocaret --coach
+.build/release/Vocaret --render-window /tmp/ui
 ```
 
-**A note on rebuilds:** an ad-hoc signature changes identity on every build, so
-macOS drops your Accessibility grant each time. To keep it, sign with your own
-Apple Development certificate (free with an Apple ID, via Xcode):
+An ad-hoc signature can require granting Accessibility again. To preserve the
+grant, sign with your Apple Development certificate:
 
 ```bash
 CODESIGN_IDENTITY="Apple Development: you@example.com (TEAMID)" ./scripts/build_app.sh --install
 ```
 
-Do **not** work around this by overriding the designated requirement to match on
-bundle identifier — that lets any app claiming the identifier inherit your
-granted permissions. See the comment in `scripts/build_app.sh`.
-
-Architecture and design notes: [docs/](docs/).
+Do not weaken the signing requirement in `scripts/build_app.sh`.
 
 ## Troubleshooting
 
-- **Hotkey does nothing** — is the app running? It is menu-bar only. Enable
-  *Start at Login*. Otherwise another app may own `⌃⌥D`; change it above.
+- **Hotkey does nothing** — launch the menu-bar app or record another shortcut.
 - **Text lands on the clipboard instead of being typed** — grant Accessibility
-  (menu → *⚠︎ Accessibility not granted*). After an ad-hoc rebuild you must
-  toggle it off and on again.
-- **`llama-server not found`** — run `scripts/setup_llm.sh`, or ignore it; the
-  cleanup features are optional.
+  again; after an ad-hoc rebuild, toggle Vocaret off and on.
+- **`llama-server not found`** — run `scripts/setup_llm.sh` or leave cleanup off.
 - **Meeting has no `Them` lines** — check System Settings → Privacy & Security →
-  Screen & System Audio Recording. The saved transcript warns you when the
-  system track was silent throughout.
+  Screen & System Audio Recording.
 - **Logs** — `log stream --predicate 'subsystem == "com.jancuhel.vocaret"' --level info`
 
 ## License
