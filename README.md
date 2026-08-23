@@ -18,7 +18,7 @@
 </p>
 
 <p align="center">
-  <a href="https://honzacuhel.github.io/vocaret/"><strong>Installation &amp; usage guide →</strong></a>
+  <a href="https://honzacuhel.github.io/vocaret/"><strong>Project website · Installation &amp; usage guide →</strong></a>
 </p>
 
 > **Status: v0.2.0, early.** Built by one person, working well daily on one Mac.

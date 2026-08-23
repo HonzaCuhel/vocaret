@@ -8,5 +8,6 @@ build/
 !.env.example
 .playwright-cli/
 .playwright-mcp/
+.impeccable/
 output/
 docs/superpowers/**
