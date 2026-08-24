@@ -21,6 +21,17 @@
   <a href="https://honzacuhel.github.io/vocaret/"><strong>Project website · Installation &amp; usage guide →</strong></a>
 </p>
 
+<p align="center">
+  <a href="https://honzacuhel.github.io/vocaret/#demo">
+    <img src="docs/assets/vocaret-live-poster.jpg" width="760"
+         alt="Vocaret demo: holding ⌃⌥D while a Czech sentence streams into the floating recorder panel">
+  </a>
+</p>
+
+<p align="center">
+  <a href="https://honzacuhel.github.io/vocaret/#demo"><strong>▶ Watch the 17-second demo →</strong></a>
+</p>
+
 > **Status: v0.2.0, early.** Used daily on one Mac; expect rough edges and read
 > [the current limitations](#limitations) before installing.
 

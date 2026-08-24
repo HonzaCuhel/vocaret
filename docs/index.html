@@ -20,6 +20,7 @@
       <span>Vocaret</span>
     </a>
     <nav aria-label="Main">
+      <a href="#demo">Demo</a>
       <a href="#how">How it works</a>
       <a href="#install">Install</a>
       <a href="https://github.com/HonzaCuhel/vocaret/blob/main/PRIVACY.md">Privacy</a>
@@ -70,6 +71,31 @@
           <kbd>⌃⌥D <span>release to insert</span></kbd>
         </div>
       </div>
+    </section>
+
+    <section class="demo-section" id="demo" aria-labelledby="demo-title">
+      <div class="section-intro" data-reveal>
+        <h2 id="demo-title">See it run.</h2>
+        <p>Seventeen seconds: hold the shortcut, watch the transcript arrive line by line in the floating recorder, then choose whether the work happens on your Mac or through the paid streaming API.</p>
+      </div>
+      <figure class="demo-figure" data-reveal data-reveal-delay="1">
+        <video
+          controls
+          playsinline
+          preload="none"
+          width="1920"
+          height="1080"
+          poster="assets/vocaret-live-poster.jpg"
+          aria-describedby="demo-caption">
+          <source src="assets/vocaret-live-demo.mp4" type="video/mp4">
+          <p>Your browser cannot play this video.
+            <a href="assets/vocaret-live-demo.mp4">Download the MP4</a> instead.</p>
+        </video>
+        <figcaption id="demo-caption">
+          Czech and English in one dictation, with the language detected per utterance.
+          No narration — the audio is a score, so it is fine to watch muted.
+        </figcaption>
+      </figure>
     </section>
 
     <section class="workflow" id="how" aria-labelledby="workflow-title">

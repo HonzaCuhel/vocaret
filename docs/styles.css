@@ -529,12 +529,45 @@ h3 {
   50% { opacity: 0; }
 }
 
+.demo-section,
 .workflow,
 .engine-section,
 .use-section,
 .soniox-setup,
 footer {
   padding-inline: clamp(26px, 7vw, 104px);
+}
+
+.demo-section {
+  padding-top: clamp(48px, 5vw, 76px);
+  padding-bottom: clamp(20px, 3vw, 40px);
+}
+
+.demo-figure {
+  margin: 0;
+}
+
+/* The instrument rule from the design system: deep elevation belongs to a
+   working surface, and the demo frame is one. */
+.demo-figure video {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 16 / 9;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: #01040c;
+  box-shadow:
+    0 34px 80px rgba(0, 0, 0, 0.62),
+    0 5px 16px rgba(0, 0, 0, 0.5);
+}
+
+.demo-figure figcaption {
+  max-width: 66ch;
+  margin-top: 16px;
+  color: var(--paper-muted);
+  font-size: 0.95rem;
+  line-height: 1.7;
 }
 
 .workflow {
