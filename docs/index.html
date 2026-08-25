@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#02030d">
-  <meta name="description" content="Vocaret is a local-first macOS dictation app with optional Soniox live transcription for Czech and English.">
+  <meta name="description" content="Vocaret is a local-first macOS dictation app with optional Soniox live transcription and GPT-5 nano formatting.">
   <title>Vocaret — local-first dictation for macOS</title>
   <link rel="icon" href="assets/icon.png">
   <script>document.documentElement.classList.add("has-js");</script>
@@ -124,23 +124,37 @@
 
     <section class="engine-section" aria-labelledby="engine-title">
       <div class="engine-heading" data-reveal>
-        <h2 id="engine-title">Choose where the work happens.</h2>
-        <p>Vocaret does not hide the trade. Local engines spend compute. Soniox spends API credit and returns words while you speak.</p>
+        <h2 id="engine-title">Choose where each step happens.</h2>
+        <p>Speech recognition and formatting are separate choices. Keep either on this Mac, or opt into the cloud for live words or faster cleanup.</p>
       </div>
       <div class="engine-rows" data-reveal data-reveal-delay="1">
         <article>
           <div>
-            <span class="engine-status local-status">On this Mac</span>
+            <span class="engine-status local-status">Local speech</span>
             <h3>Whisper or Parakeet</h3>
           </div>
           <p>Audio stays local. Whisper prioritizes bilingual accuracy; Parakeet prioritizes speed on clean speech.</p>
         </article>
         <article>
           <div>
-            <span class="engine-status live-status">Optional cloud</span>
+            <span class="engine-status live-status">Live speech</span>
             <h3>Soniox Live</h3>
           </div>
           <p>Use your own regional project key. Settings shows the exact current-month <code>stt-rt-v5</code> cost from Soniox.</p>
+        </article>
+        <article>
+          <div>
+            <span class="engine-status local-status">Local cleanup</span>
+            <h3>Qwen3 4B</h3>
+          </div>
+          <p>Formats text privately through llama.cpp. The optional model download is about 2.4 GB and works offline.</p>
+        </article>
+        <article>
+          <div>
+            <span class="engine-status cloud-status">Cloud cleanup</span>
+            <h3>GPT-5 nano</h3>
+          </div>
+          <p>Sends transcript text—not audio—to OpenAI for fast formatting. It uses your API key and falls back to the original text.</p>
         </article>
       </div>
     </section>
@@ -192,13 +206,13 @@
 
     <section class="soniox-setup" aria-labelledby="soniox-title">
       <div data-reveal>
-        <h2 id="soniox-title">Add live words when you want them.</h2>
-        <p>Create a Soniox project, copy its API key, then open <strong>Settings → Transcription → Soniox Live</strong>. Select the region that matches the key and connect.</p>
+        <h2 id="soniox-title">Connect only what you choose.</h2>
+        <p><strong>Soniox Live:</strong> create a project, copy its API key, then open <strong>Settings → Transcription → Soniox Live</strong>. Match the region to the key: a US key cannot use the EU endpoint.</p>
       </div>
       <div class="region-note" data-reveal data-reveal-delay="1">
-        <strong>US is not the same as EU.</strong>
-        <p>A US project key uses the United States endpoint. EU processing requires an EU project key and the European Union endpoint.</p>
-        <a class="text-link" href="https://soniox.com/docs/data-residency">Read Soniox region guidance <span aria-hidden="true">↗</span></a>
+        <strong>GPT-5 nano formats text, not audio.</strong>
+        <p>Add an OpenAI key under <strong>Settings → AI cleanup</strong>. Requests cost $0.05 / 1M input and $0.40 / 1M output tokens; failures keep the raw transcript.</p>
+        <a class="text-link" href="https://developers.openai.com/api/docs/models/gpt-5-nano">Read the OpenAI model details <span aria-hidden="true">↗</span></a>
       </div>
     </section>
   </main>

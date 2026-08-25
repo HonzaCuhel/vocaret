@@ -1,6 +1,6 @@
 # Privacy
 
-Vocaret is local by default and offers an explicit, optional Soniox live mode.
+Vocaret is local by default and offers explicit Soniox and OpenAI cloud options.
 This document states exactly what leaves the Mac in each mode.
 
 ## What leaves your Mac
@@ -26,11 +26,20 @@ When a Soniox key is connected, Settings also calls the selected region's
 cost, request count, and processed audio duration. That request sends the API
 key for authentication but no recording or transcript.
 
-The Soniox API key is supplied by you and stored in the macOS Data Protection
-Keychain when the app has a provisioning profile. Local ad-hoc builds use
-`~/Library/Application Support/Vocaret/Secrets/soniox.key` instead; its
-directory is mode `0700`, the file is mode `0600`, and it is excluded from
-backups. The key is never stored in `UserDefaults`, logs, or repository files.
+With **GPT-5 nano selected for AI cleanup**, Vocaret sends the completed
+transcript text, the cleanup instructions, and your vocabulary terms to the
+OpenAI Responses API. It does not send audio. Requests use `store: false`,
+minimal reasoning, and a four-second timeout. An error, timeout, empty response,
+or suspicious rewrite is discarded and the original transcript is inserted.
+Review the [OpenAI API data controls](https://developers.openai.com/api/docs/guides/your-data)
+before opting in.
+
+The Soniox and OpenAI API keys are supplied by you and stored separately in the
+macOS Data Protection Keychain when the app has a provisioning profile. Local
+ad-hoc builds use `~/Library/Application Support/Vocaret/Secrets/soniox.key`
+and `openai.key` instead; the directory is mode `0700`, each file is mode
+`0600`, and they are excluded from backups. Keys are never stored in
+`UserDefaults`, logs, or repository files.
 There is no Vocaret analytics, telemetry, crash reporting, account, or operated
 server.
 
@@ -45,8 +54,9 @@ server.
    TDT 0.6B v3 Core ML model (~500 MB) from Hugging Face (repository
    `FluidInference/parakeet-tdt-0.6b-v3-coreml`).
 
-After local model downloads, Whisper/Parakeet mode works offline. Soniox mode
-requires networking and paid Soniox API access.
+After local model downloads, Whisper/Parakeet with local Qwen cleanup works
+offline. Soniox and GPT-5 nano each require networking and their own paid API
+access.
 
 ## What is stored on your Mac, and where
 
@@ -57,7 +67,7 @@ requires networking and paid Soniox API access.
 | Raw meeting audio (WAV) | `~/Documents/Vocaret/Recordings/` | **Deleted** after transcription — opt in via *Keep Meeting Audio Files* |
 | Models | `~/Library/Application Support/Vocaret/Models/` | Kept |
 | Settings | `defaults` domain `com.jancuhel.vocaret` | — |
-| Soniox API key (optional) | Data Protection Keychain; protected local file for ad-hoc builds | Kept until removed in Settings |
+| Soniox/OpenAI API keys (optional) | Data Protection Keychain; separate protected local files for ad-hoc builds | Kept until removed in Settings |
 
 Two consequences worth knowing:
 
@@ -73,6 +83,7 @@ To delete everything Vocaret ever wrote:
 rm -rf ~/Library/Application\ Support/Vocaret ~/Documents/Vocaret
 defaults delete com.jancuhel.vocaret
 security delete-generic-password -s com.jancuhel.vocaret.api-key -a soniox
+security delete-generic-password -s com.jancuhel.vocaret.api-key -a openai
 ```
 
 ## Recording other people

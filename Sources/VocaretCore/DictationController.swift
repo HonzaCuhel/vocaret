@@ -168,7 +168,9 @@ public final class DictationController {
             if recordingEngine != "soniox" { startSpeechWatcher() }
             MediaPauser.shared.pauseIfPlaying()
             // Hide the LLM cold start behind the time the user spends speaking.
-            if SettingsStore.shared.cleanDictation { LLMCleaner.shared.warmUp() }
+            if SettingsStore.shared.cleanDictation {
+                DictationCleanup.warmUp(model: SettingsStore.shared.dictationCleanupModel)
+            }
             if SettingsStore.shared.pushToTalk {
                 let settings = SettingsStore.shared
                 HotkeyManager.shared.beginReleaseWatch(
@@ -385,6 +387,7 @@ public final class DictationController {
         let transcriptionStarted = Date()
         let engine = recordingEngine
         let shouldClean = SettingsStore.shared.cleanDictation
+        let cleanupModel = SettingsStore.shared.dictationCleanupModel
         SoundPlayer.play(.stop)
         state = .transcribing
         HUD.shared.beginTranscribing(
@@ -487,9 +490,11 @@ public final class DictationController {
                 }
                 if shouldClean {
                     HUD.shared.updatePartial(text)
-                    HUD.shared.update(L("Cleaning with local AI…"))
+                    HUD.shared.update(cleanupModel == "gpt-5-nano"
+                        ? L("Formatting with GPT-5 nano…")
+                        : L("Cleaning with local AI…"))
                     let raw = text
-                    text = await LLMCleaner.shared.cleanDictation(text)
+                    text = await DictationCleanup.clean(text, model: cleanupModel)
                     try Task.checkCancellation()
                     // Watch what the cleanup fixes; a word corrected twice
                     // becomes an automatic correction, LLM or not.

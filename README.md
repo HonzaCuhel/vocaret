@@ -7,7 +7,7 @@
 <p align="center">
   <strong>Local-first speech-to-text for macOS.</strong><br>
   Hold a key, speak, let go — your words appear where your cursor is.<br>
-  Czech and English, mixed freely. Local by default; optional live cloud mode.
+  Czech and English, mixed freely. Local by default; cloud only when selected.
 </p>
 
 <p align="center">
@@ -44,14 +44,14 @@
   words with automatic local fallback.
 - **Meeting transcription** — `⌃⌥M` captures microphone and system audio as
   `Me` / `Them`, without a virtual audio driver.
-- **Useful extras** — optional local cleanup, searchable history, speaking
+- **Useful extras** — optional local Qwen or GPT-5 nano cleanup, searchable history, speaking
   metrics, meeting summaries, and automatic Spotify/Music pause and resume.
 - **Focused overlay** — see microphone level and up to four recent live lines
   without leaving the app where you are typing.
 
-Whisper, Parakeet, and llama.cpp run locally. Soniox is explicit opt-in and
-sends live audio to the selected EU or US endpoint. See [PRIVACY.md](PRIVACY.md)
-for the exact data flow and retention behavior.
+Whisper, Parakeet, and Qwen through llama.cpp run locally. Soniox is an explicit
+opt-in for live audio; GPT-5 nano is a separate opt-in that receives transcript
+text for formatting. See [PRIVACY.md](PRIVACY.md) for the exact data flow.
 
 ## Requirements
 
@@ -116,6 +116,16 @@ settings. The menu also exposes the latest dictation if insertion fails.
 
 Soniox is optional and paid. Select Whisper or Parakeet for fully local use.
 
+### AI cleanup
+
+In **Settings → AI cleanup**, enable dictation cleanup and choose:
+
+- **Local Qwen3 4B** — private and offline; run `scripts/setup_llm.sh` first.
+- **GPT-5 nano** — paste your OpenAI API key for fast cloud formatting. Audio
+  is never sent to OpenAI, responses use `store: false`, and failures fall back
+  to the original transcript. Current model pricing is
+  [$0.05 / 1M input and $0.40 / 1M output tokens](https://developers.openai.com/api/docs/models/gpt-5-nano).
+
 ## Meeting privacy
 
 Meeting mode records everyone on the call. Tell participants first and follow
@@ -133,6 +143,7 @@ defaults write com.jancuhel.vocaret whisperModel openai_whisper-large-v3-v202409
 defaults write com.jancuhel.vocaret asrEngine parakeet   # or: whisper
 defaults write com.jancuhel.vocaret sonioxRegion eu      # or: us
 defaults write com.jancuhel.vocaret asrEngine soniox
+defaults write com.jancuhel.vocaret dictationCleanupModel gpt-5-nano # or: local
 defaults write com.jancuhel.vocaret autoLanguages -array de en
 defaults write com.jancuhel.vocaret keepRecordings -bool true
 defaults write com.jancuhel.vocaret keepDictationHistory -bool false
@@ -152,9 +163,10 @@ Restart Vocaret after changing defaults.
 ## Performance
 
 Warm Whisper dictation typically finishes in about one second; Parakeet is
-faster on clean speech. Soniox streams partial text but uses network and paid
-API credit. For the lightest local setup, use the 626 MB Whisper model, set
-`keepModelLoaded false`, and disable cleanup.
+faster on clean speech. Soniox streams partial text; GPT-5 nano formats only
+after transcription. Both use network and paid API credit. For the lightest
+local setup, use the 626 MB Whisper model, set `keepModelLoaded false`, and
+disable cleanup.
 
 ## Uninstall
 
@@ -164,6 +176,7 @@ rm -rf ~/Library/Application\ Support/Vocaret
 rm -rf ~/Documents/Vocaret
 defaults delete com.jancuhel.vocaret
 security delete-generic-password -s com.jancuhel.vocaret.api-key -a soniox
+security delete-generic-password -s com.jancuhel.vocaret.api-key -a openai
 ```
 
 Then remove Vocaret from System Settings → Privacy & Security → Accessibility,

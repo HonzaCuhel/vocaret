@@ -222,6 +222,10 @@ struct SettingsView: View {
     @State private var sonioxUsage: SonioxUsageSnapshot?
     @State private var sonioxUsageStatus: String?
     @State private var sonioxUsageBusy = false
+    @State private var openAIKeyEntry = ""
+    @State private var openAIKeySaved = false
+    @State private var openAIKeyStatus: String?
+    @State private var openAIKeyBusy = false
 
     enum HotkeyTarget { case dictation, meeting }
 
@@ -359,8 +363,53 @@ struct SettingsView: View {
                     ForEach(Appearance.options, id: \.id) { option in Text(L(option.title)).tag(option.id) }
                 }
             }
-            Section(L("AI cleanup (local LLM)")) {
+            Section(L("AI cleanup")) {
                 Toggle(L("Clean dictation with AI (adds ~1–2 s)"), isOn: $settings.cleanDictation)
+                if settings.cleanDictation {
+                    Picker(L("Dictation formatter"), selection: $settings.dictationCleanupModel) {
+                        Text(L("Local Qwen3 4B")).tag("local")
+                        Text("GPT-5 nano").tag("gpt-5-nano")
+                    }
+                    Text(settings.dictationCleanupModel == "gpt-5-nano"
+                         ? L("Fast cloud formatting. Transcript text is sent to OpenAI; audio is not.")
+                         : L("Private local formatting. Requires the optional 2.4 GB model."))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    if settings.dictationCleanupModel == "gpt-5-nano" {
+                        if openAIKeySaved {
+                            HStack {
+                                Label(L("Connected"), systemImage: "checkmark.circle.fill")
+                                    .foregroundStyle(.green)
+                                Spacer()
+                                Button(L("Disconnect"), role: .destructive) { removeOpenAIKey() }
+                                    .disabled(openAIKeyBusy)
+                            }
+                        } else {
+                            SecureField(L("OpenAI API key"), text: $openAIKeyEntry)
+                                .disabled(openAIKeyBusy)
+                            HStack {
+                                Button(L("Connect")) { saveOpenAIKey() }
+                                    .buttonStyle(.borderedProminent)
+                                    .disabled(openAIKeyBusy || openAIKeyEntry.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                                if openAIKeyBusy { ProgressView().controlSize(.small) }
+                                if let openAIKeyStatus {
+                                    Text(openAIKeyStatus).font(.caption).foregroundStyle(.orange)
+                                }
+                            }
+                        }
+                        LabeledContent(L("API price"), value: "$0.05 / 1M input · $0.40 / 1M output tokens")
+                            .font(.caption)
+                        HStack {
+                            Text(L("The key stays in protected storage. If OpenAI is unavailable or the key is missing, Vocaret inserts the original transcript."))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            Link(L("OpenAI usage"), destination: URL(string: "https://platform.openai.com/usage")!)
+                                .font(.caption)
+                        }
+                    }
+                }
                 Toggle(L("Structure meeting notes with AI"), isOn: $settings.cleanMeetings)
                 HStack {
                     Circle().fill(model.llmAvailable ? Color.green : Color.orange).frame(width: 8, height: 8)
@@ -413,9 +462,7 @@ struct SettingsView: View {
                 LabeledContent(L("Dictation history"), value: TranscriptHistory.shared.fileURL.path)
                 LabeledContent(L("Meeting transcripts"), value: SettingsStore.shared.meetingsDir.path)
                 LabeledContent(L("Models"), value: SettingsStore.shared.modelsDir.path)
-                Text(settings.asrEngine == "soniox"
-                     ? L("Live dictation audio is sent to your selected Soniox region. History, meetings, and local cleanup remain on this Mac.")
-                     : L("Local speech engines keep audio on this Mac. See PRIVACY.md for the exact details."))
+                Text(dataFlowDescription)
                     .font(.caption).foregroundStyle(.secondary)
             }
         }
@@ -425,6 +472,7 @@ struct SettingsView: View {
             settings = SettingsSnapshot()
             vocabularyText = Vocabulary.shared.terms.joined(separator: "\n")
             refreshSonioxKeyStatus()
+            refreshOpenAIKeyStatus()
             model.refreshStatus()
         }
         .onChange(of: settings) { old, new in new.apply(changedFrom: old) }
@@ -471,6 +519,20 @@ struct SettingsView: View {
         default:
             return L("Accurate local transcription. Text appears after a pause or when you finish.")
         }
+    }
+
+    private var dataFlowDescription: String {
+        if settings.asrEngine == "soniox", settings.cleanDictation,
+           settings.dictationCleanupModel == "gpt-5-nano" {
+            return L("Dictation audio is sent to Soniox, then transcript text is sent to OpenAI. History and meetings stay on this Mac.")
+        }
+        if settings.asrEngine == "soniox" {
+            return L("Live dictation audio is sent to your selected Soniox region. History, meetings, and local cleanup remain on this Mac.")
+        }
+        if settings.cleanDictation, settings.dictationCleanupModel == "gpt-5-nano" {
+            return L("Audio stays on this Mac. After local transcription, transcript text is sent to OpenAI for formatting.")
+        }
+        return L("Local speech engines keep audio on this Mac. See PRIVACY.md for the exact details.")
     }
 
     private func refreshSonioxKeyStatus() {
@@ -521,6 +583,54 @@ struct SettingsView: View {
                 model.refreshStatus()
             } catch {
                 sonioxKeyStatus = error.localizedDescription
+            }
+        }
+    }
+
+    private func refreshOpenAIKeyStatus() {
+        guard !openAIKeyBusy else { return }
+        openAIKeyBusy = true
+        Task { @MainActor in
+            defer { openAIKeyBusy = false }
+            do {
+                openAIKeySaved = try await AsyncAPIKeyAccess.shared.load(.openAI) != nil
+                openAIKeyStatus = nil
+            } catch {
+                openAIKeySaved = false
+                openAIKeyStatus = error.localizedDescription
+            }
+        }
+    }
+
+    private func saveOpenAIKey() {
+        guard !openAIKeyBusy else { return }
+        let key = openAIKeyEntry
+        openAIKeyBusy = true
+        Task { @MainActor in
+            defer { openAIKeyBusy = false }
+            do {
+                try await AsyncAPIKeyAccess.shared.save(key, for: .openAI)
+                openAIKeyEntry = ""
+                openAIKeySaved = true
+                openAIKeyStatus = nil
+            } catch {
+                openAIKeyStatus = error.localizedDescription
+            }
+        }
+    }
+
+    private func removeOpenAIKey() {
+        guard !openAIKeyBusy else { return }
+        openAIKeyBusy = true
+        Task { @MainActor in
+            defer { openAIKeyBusy = false }
+            do {
+                try await AsyncAPIKeyAccess.shared.remove(.openAI)
+                openAIKeyEntry = ""
+                openAIKeySaved = false
+                openAIKeyStatus = nil
+            } catch {
+                openAIKeyStatus = error.localizedDescription
             }
         }
     }
@@ -577,6 +687,7 @@ struct SettingsSnapshot: Equatable {
     var sonioxRegion = SettingsStore.shared.sonioxRegion
     var uiLanguage = SettingsStore.shared.uiLanguage
     var cleanDictation = SettingsStore.shared.cleanDictation
+    var dictationCleanupModel = SettingsStore.shared.dictationCleanupModel
     var cleanMeetings = SettingsStore.shared.cleanMeetings
     var keepRecordings = SettingsStore.shared.keepRecordings
     var keepDictationHistory = SettingsStore.shared.keepDictationHistory
@@ -609,6 +720,9 @@ struct SettingsSnapshot: Equatable {
         if appearance != old.appearance { Appearance.set(appearance) }
         if pauseMedia != old.pauseMedia { s.pauseMediaWhileRecording = pauseMedia }
         if cleanDictation != old.cleanDictation { s.cleanDictation = cleanDictation }
+        if dictationCleanupModel != old.dictationCleanupModel {
+            s.dictationCleanupModel = dictationCleanupModel
+        }
         if cleanMeetings != old.cleanMeetings { s.cleanMeetings = cleanMeetings }
         if keepRecordings != old.keepRecordings { s.keepRecordings = keepRecordings }
         if keepDictationHistory != old.keepDictationHistory { s.keepDictationHistory = keepDictationHistory }

@@ -27,6 +27,7 @@ public final class SettingsStore: @unchecked Sendable {
         static let autoLanguages = "autoLanguages"
         static let whisperModel = "whisperModel"
         static let cleanDictation = "cleanDictation"
+        static let dictationCleanupModel = "dictationCleanupModel"
         static let cleanMeetings = "cleanMeetings"
         static let keepRecordings = "keepRecordings"
         static let keepDictationHistory = "keepDictationHistory"
@@ -81,6 +82,16 @@ public final class SettingsStore: @unchecked Sendable {
     public var cleanDictation: Bool {
         get { boolValue(Key.cleanDictation, default: false) }
         set { defaults.set(newValue, forKey: Key.cleanDictation) }
+    }
+
+    /// "local" (Qwen through llama.cpp) or "gpt-5-nano" (OpenAI Responses
+    /// API). Cleanup stays off until `cleanDictation` is enabled.
+    public var dictationCleanupModel: String {
+        get {
+            let value = defaults.string(forKey: Key.dictationCleanupModel)?.lowercased()
+            return ["local", "gpt-5-nano"].contains(value) ? value! : "local"
+        }
+        set { defaults.set(newValue, forKey: Key.dictationCleanupModel) }
     }
 
     public var cleanMeetings: Bool {

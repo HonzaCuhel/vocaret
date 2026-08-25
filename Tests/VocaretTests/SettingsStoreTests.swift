@@ -25,6 +25,7 @@ final class SettingsStoreTests: XCTestCase {
         XCTAssertEqual(store.asrEngine, "whisper")
         XCTAssertEqual(store.sonioxRegion, "eu")
         XCTAssertFalse(store.cleanDictation)
+        XCTAssertEqual(store.dictationCleanupModel, "local")
         XCTAssertTrue(store.cleanMeetings)
         XCTAssertFalse(store.keepRecordings) // other people's voices are not kept by default
         XCTAssertTrue(store.keepModelLoaded)
@@ -43,6 +44,7 @@ final class SettingsStoreTests: XCTestCase {
         store.language = "cs"
         store.autoLanguages = ["en"]
         store.cleanDictation = true
+        store.dictationCleanupModel = "gpt-5-nano"
         store.cleanMeetings = false
         store.keepRecordings = true
         store.whisperModel = "openai_whisper-small"
@@ -57,6 +59,7 @@ final class SettingsStoreTests: XCTestCase {
         XCTAssertEqual(reread.language, "cs")
         XCTAssertEqual(reread.autoLanguages, ["en"])
         XCTAssertTrue(reread.cleanDictation)
+        XCTAssertEqual(reread.dictationCleanupModel, "gpt-5-nano")
         XCTAssertFalse(reread.cleanMeetings)
         XCTAssertTrue(reread.keepRecordings)
         XCTAssertEqual(reread.whisperModel, "openai_whisper-small")
@@ -82,6 +85,12 @@ final class SettingsStoreTests: XCTestCase {
 
         XCTAssertEqual(store.asrEngine, "whisper")
         XCTAssertEqual(store.sonioxRegion, "eu")
+    }
+
+    func testInvalidCleanupModelFallsBackToLocal() {
+        store.dictationCleanupModel = "unknown"
+
+        XCTAssertEqual(store.dictationCleanupModel, "local")
     }
 
     func testSonioxDoesNotRequireLocalModelPreload() {

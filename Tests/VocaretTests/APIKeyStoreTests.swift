@@ -14,6 +14,16 @@ final class APIKeyStoreTests: XCTestCase {
         XCTAssertNil(try secrets.load(.soniox))
     }
 
+    func testProvidersKeepSeparateKeys() throws {
+        let secrets = InMemoryAPIKeyStore()
+
+        try secrets.save("soniox-secret", for: .soniox)
+        try secrets.save("openai-secret", for: .openAI)
+
+        XCTAssertEqual(try secrets.load(.soniox), "soniox-secret")
+        XCTAssertEqual(try secrets.load(.openAI), "openai-secret")
+    }
+
     func testSecretStoreRejectsEmptyKey() {
         let secrets = InMemoryAPIKeyStore()
 

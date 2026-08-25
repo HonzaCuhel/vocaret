@@ -3,6 +3,7 @@ import Security
 
 enum APIProvider: String, Sendable {
     case soniox
+    case openAI = "openai"
 }
 
 enum APIKeyStoreError: Error, Equatable, LocalizedError {

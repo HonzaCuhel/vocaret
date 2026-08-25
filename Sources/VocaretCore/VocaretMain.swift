@@ -89,6 +89,7 @@ public enum VocaretMain {
                 let samples = try AudioProcessor.loadAudioAsFloatArray(fromPath: path)
                 let seconds = Double(samples.count) / MicRecorder.whisperSampleRate
                 let cleanup = SettingsStore.shared.cleanDictation
+                let cleanupModel = SettingsStore.shared.dictationCleanupModel
                 FileHandle.standardError.write(Data(String(
                     format: "clip=%@ %.1fs engine=%@ cleanup=%@\n",
                     (path as NSString).lastPathComponent, seconds, SettingsStore.shared.asrEngine, cleanup ? "on" : "off").utf8))
@@ -115,12 +116,12 @@ public enum VocaretMain {
 
                 for run in 1...max(1, repeats) {
                     // Exactly what a recording start does.
-                    if cleanup { LLMCleaner.shared.warmUp() }
+                    if cleanup { DictationCleanup.warmUp(model: cleanupModel) }
                     try? await Task.sleep(nanoseconds: UInt64(min(seconds, 4) * 1_000_000_000))
                     let started = Date()
                     let raw = try await Transcriber.shared.transcribe(samples: samples)
                     let transcribed = Date()
-                    var text = cleanup ? await LLMCleaner.shared.cleanDictation(raw) : raw
+                    var text = cleanup ? await DictationCleanup.clean(raw, model: cleanupModel) : raw
                     // Same order as the real dictation path.
                     text = TranscriptCorrector.apply(
                         text, vocabulary: Vocabulary.shared,

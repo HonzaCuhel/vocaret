@@ -720,7 +720,8 @@ code {
 }
 
 .live-status::before,
-.local-status::before {
+.local-status::before,
+.cloud-status::before {
   display: inline-block;
   width: 7px;
   height: 7px;
@@ -732,6 +733,10 @@ code {
 
 .local-status::before {
   background: var(--violet-bright);
+}
+
+.cloud-status::before {
+  background: var(--paper-muted);
 }
 
 .install-section {
