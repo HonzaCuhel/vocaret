@@ -32,6 +32,21 @@ public actor Transcriber {
     /// Invalidates an in-flight load if the user switches engines while the
     /// underlying framework is inside a cancellation-insensitive operation.
     private var modelGeneration = 0
+    private var activeMeetings = 0
+    private var decodeInProgress = false
+    private var decodeWaiters: [CheckedContinuation<Void, Never>] = []
+
+    // Actors reenter at await; Core ML inference still needs explicit exclusion
+    // when live meetings and dictation share the selected model.
+    private func acquireDecode() async {
+        if !decodeInProgress { decodeInProgress = true; return }
+        await withCheckedContinuation { decodeWaiters.append($0) }
+    }
+
+    private func releaseDecode() {
+        if decodeWaiters.isEmpty { decodeInProgress = false }
+        else { decodeWaiters.removeFirst().resume() }
+    }
 
     public var isReady: Bool {
         get async {
@@ -56,6 +71,31 @@ public actor Transcriber {
         case .whisper:
             _ = try? await ensureLoaded()
         }
+    }
+
+    /// Meetings always use a local engine, including when dictation uses Soniox.
+    /// Keep it resident through silent stretches instead of reloading mid-call.
+    func beginMeeting(engine: String) async {
+        activeMeetings += 1
+        unloadTask?.cancel()
+        unloadTask = nil
+        if engine == "parakeet" { await ParakeetEngine.shared.preload() }
+        else { _ = try? await ensureLoaded() }
+    }
+
+    func endMeeting() async {
+        activeMeetings = max(0, activeMeetings - 1)
+        guard activeMeetings == 0 else { return }
+        if SettingsStore.shared.asrEngine == "soniox" { await unload() }
+        else { scheduleUnloadIfConfigured() }
+    }
+
+    func transcribeMeetingChunk(samples: [Float], offset: Double, engine: String) async throws -> [SpokenSegment] {
+        await acquireDecode()
+        defer { releaseDecode() }
+        try Task.checkCancellation()
+        let kit = engine == "parakeet" ? nil : try await ensureLoaded()
+        return try await transcribeChunk(kit, samples, offset: offset, allowSticky: false)
     }
 
     public func unload() async {
@@ -106,6 +146,9 @@ public actor Transcriber {
     public func transcribe(samples: [Float]) async throws -> String {
         // Whisper hallucinates on near-empty audio; skip clips under 0.3 s.
         guard samples.count > Int(MicRecorder.whisperSampleRate * 0.3) else { return "" }
+        await acquireDecode()
+        defer { releaseDecode() }
+        try Task.checkCancellation()
         let kit = try await engineIfWhisper()
         defer { scheduleUnloadIfConfigured() }
 
@@ -138,7 +181,7 @@ public actor Transcriber {
     }
 
     private func unloadCloudFallbackIfStillOwned(generation: Int) async {
-        guard ModelLifecyclePolicy.shouldUnloadCloudFallback(
+        guard activeMeetings == 0, ModelLifecyclePolicy.shouldUnloadCloudFallback(
             startingGeneration: generation,
             currentGeneration: modelGeneration,
             currentEngine: SettingsStore.shared.asrEngine
@@ -151,6 +194,9 @@ public actor Transcriber {
     /// every chunk is detected on its own (no sticky language: a one-word
     /// "Yes" after a Czech turn must not be decoded as Czech).
     public func transcribe(fileURL: URL) async throws -> [SpokenSegment] {
+        await acquireDecode()
+        defer { releaseDecode() }
+        try Task.checkCancellation()
         let kit = try await engineIfWhisper()
         defer { scheduleUnloadIfConfigured() }
         let samples = try AudioProcessor.loadAudioAsFloatArray(fromPath: fileURL.path)
@@ -167,6 +213,7 @@ public actor Transcriber {
         Log.info("Transcribing \(ranges.count) utterance chunk(s) from \(String(format: "%.1f", Double(samples.count) / MicRecorder.whisperSampleRate))s of audio")
         var segments: [SpokenSegment] = []
         for range in ranges {
+            try Task.checkCancellation()
             let offset = Double(range.lowerBound) / MicRecorder.whisperSampleRate
             segments += try await transcribeChunk(kit, Array(samples[range]), offset: offset, allowSticky: allowSticky)
         }
@@ -192,7 +239,7 @@ public actor Transcriber {
     private func transcribeChunk(_ kit: WhisperKit?, _ rawSamples: [Float], offset: Double, allowSticky: Bool) async throws -> [SpokenSegment] {
         let settings = SettingsStore.shared
         let chunkSeconds = Double(rawSamples.count) / MicRecorder.whisperSampleRate
-        if kit == nil || settings.asrEngine == "parakeet" {
+        if kit == nil {
             // Parakeet: no zero-padding (it hurts short clips there), one segment
             // per chunk, no per-language re-decode (not language-conditioned).
             let hint = settings.language == "auto" ? nil : settings.language
@@ -308,40 +355,35 @@ public actor Transcriber {
             .appendingPathComponent("models/argmaxinc/whisperkit-coreml/\(model)", isDirectory: true)
     }
 
-    private func load(model: String) async throws -> WhisperKit {
-        let modelsDir = SettingsStore.shared.modelsDir
-        let localFolder = Self.localModelFolder(for: model)
+    static func modelConfiguration(model: String, modelsDir: URL) -> WhisperKitConfig {
+        let localFolder = modelsDir
+            .appendingPathComponent("models/argmaxinc/whisperkit-coreml/\(model)", isDirectory: true)
         let isLocal = FileManager.default.fileExists(
             atPath: localFolder.appendingPathComponent("TextDecoder.mlmodelc").path
         )
-        Log.info("Loading Whisper model '\(model)' (\(isLocal ? "local" : "download"))…")
 
         // Offline-first: when the model is already on disk, point WhisperKit at
         // the folder with downloads disabled. Otherwise WhisperKit's download
         // path performs a network listing on EVERY launch and fails offline.
-        let config: WhisperKitConfig
-        if isLocal {
-            config = WhisperKitConfig(
-                model: model,
-                downloadBase: modelsDir,
-                modelFolder: localFolder.path,
-                verbose: false,
-                logLevel: .error,
-                prewarm: true,
-                load: true,
-                download: false
-            )
-        } else {
-            config = WhisperKitConfig(
-                model: model,
-                downloadBase: modelsDir,
-                verbose: false,
-                logLevel: .error,
-                prewarm: true,
-                load: true,
-                download: true
-            )
-        }
+        // Keep the tokenizer here too. WhisperKit otherwise puts it in
+        // Documents/huggingface, where iCloud can evict it and a synchronous
+        // config read can stall waiting for file-provider hydration.
+        return WhisperKitConfig(
+            model: model,
+            downloadBase: modelsDir,
+            modelFolder: isLocal ? localFolder.path : nil,
+            tokenizerFolder: modelsDir,
+            verbose: false,
+            logLevel: .error,
+            prewarm: true,
+            load: true,
+            download: !isLocal
+        )
+    }
+
+    private func load(model: String) async throws -> WhisperKit {
+        let config = Self.modelConfiguration(model: model, modelsDir: SettingsStore.shared.modelsDir)
+        Log.info("Loading Whisper model '\(model)' (\(config.download ? "download" : "local"))…")
         let kit = try await WhisperKit(config)
         // Silence warm-up (2 s: WhisperKit skips windows ≤ 1 s) so the first
         // real dictation is instant. Result discarded.
@@ -356,7 +398,7 @@ public actor Transcriber {
     /// When the user opts out of keeping the model resident, drop it after
     /// 10 idle minutes so the RAM (mostly mmapped weights) is fully returned.
     private func scheduleUnloadIfConfigured() {
-        guard !SettingsStore.shared.keepModelLoaded else { return }
+        guard activeMeetings == 0, !SettingsStore.shared.keepModelLoaded else { return }
         unloadTask?.cancel()
         unloadTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 600 * 1_000_000_000)

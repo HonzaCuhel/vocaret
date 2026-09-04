@@ -18,6 +18,7 @@ public final class SystemAudioTap {
     public private(set) var ioCallbackCount = 0
     public private(set) var bufferWrapFailures = 0
     public private(set) var writeFailures = 0
+    public private(set) var conversionFailures = 0
     public private(set) var formatDescription = "unknown"
     /// False for the whole session means the tap only ever delivered zeros —
     /// typically the System Audio Recording permission was denied.
@@ -26,6 +27,10 @@ public final class SystemAudioTap {
     public var diagnostics: String {
         "format=\(formatDescription) ioCallbacks=\(ioCallbackCount) wrapFailures=\(bufferWrapFailures) writeFailures=\(writeFailures)"
     }
+
+    /// Set before start; invoked on the serial IO queue with 16 kHz mono PCM.
+    public var onSamples: (@Sendable ([Float]) -> Void)?
+    private var liveConverter: PCMStreamConverter?
 
     private var tapID = AudioObjectID(kAudioObjectUnknown)
     private var aggregateID = AudioObjectID(kAudioObjectUnknown)
@@ -67,6 +72,7 @@ public final class SystemAudioTap {
                 throw AudioCaptureError.formatUnsupported
             }
             format = tapFormat
+            if onSamples != nil { liveConverter = try PCMStreamConverter(format: tapFormat) }
             formatDescription = "\(Int(asbd.mSampleRate))Hz ch=\(asbd.mChannelsPerFrame) bits=\(asbd.mBitsPerChannel) flags=0x\(String(asbd.mFormatFlags, radix: 16)) interleaved=\(!tapFormat.isInterleaved ? "no" : "yes") standard=\(tapFormat.isStandard)"
             Log.info("System tap format: \(formatDescription)")
 
@@ -156,6 +162,13 @@ public final class SystemAudioTap {
             let samples = UnsafeBufferPointer(start: data[0], count: count)
             if samples.contains(where: { $0 != 0 }) { sawNonZeroSample = true }
         }
+        if let liveConverter, let onSamples {
+            do { onSamples(try liveConverter.convert(buffer)) }
+            catch {
+                conversionFailures += 1
+                if conversionFailures == 1 { Log.warn("System audio live conversion failed; WAV retained for recovery") }
+            }
+        }
         do {
             try file.write(from: buffer)
         } catch {
@@ -184,5 +197,7 @@ public final class SystemAudioTap {
         ioQueue.sync {}
         file = nil
         format = nil
+        liveConverter = nil
+        onSamples = nil
     }
 }

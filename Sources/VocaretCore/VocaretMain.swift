@@ -34,6 +34,12 @@ public enum VocaretMain {
             RunLoop.main.run()
         }
 
+        // Synthetic meeting UI only: no recordings, saved transcripts or model loads.
+        if let flagIndex = arguments.firstIndex(of: "--render-meetings"), arguments.count > flagIndex + 1 {
+            WindowRenderer.run(outputDirectory: arguments[flagIndex + 1], meetingPreviewsOnly: true)
+            return
+        }
+
         // Headless UI render: `Vocaret --render-window /dir` → one PNG per section
         if let flagIndex = arguments.firstIndex(of: "--render-window"), arguments.count > flagIndex + 1 {
             WindowRenderer.run(outputDirectory: arguments[flagIndex + 1])

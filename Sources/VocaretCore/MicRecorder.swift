@@ -25,7 +25,7 @@ public enum AudioCaptureError: Error, LocalizedError {
 
 /// Captures the default microphone. Two modes:
 /// - in-memory: converted on the fly to 16 kHz mono Float32 (Whisper's input format)
-/// - to-file: written as a WAV in the format the mic had at start
+/// - to-file: written as a 16 kHz mono WAV with optional live callbacks
 ///
 /// Both modes always run the input through an AVAudioConverter to a fixed
 /// target format, so when the input device changes mid-recording (AirPods
@@ -36,6 +36,8 @@ public final class MicRecorder {
     public static let whisperSampleRate: Double = 16_000
 
     public private(set) var isRunning = false
+    public private(set) var writeFailures = 0
+    public private(set) var conversionFailures = 0
     /// Called (on the main queue) if the engine had to be restarted after an
     /// audio-route change, or stopped because it could not be restarted.
     public var onInterrupted: ((Error?) -> Void)?
@@ -85,6 +87,8 @@ public final class MicRecorder {
 
     private func start(fileURL: URL?) throws {
         guard !isRunning else { return }
+        writeFailures = 0
+        conversionFailures = 0
         sampleLock.lock()
         samples.removeAll()
         activity = RecordingActivity(sampleRate: Self.whisperSampleRate)
@@ -98,11 +102,11 @@ public final class MicRecorder {
 
         let target: AVAudioFormat
         if let fileURL {
-            // Keep the mic's native rate but always mono Float32 — smaller
-            // files, and Whisper mixes to mono anyway.
+            // Store the recognition format once: smaller WAV files and no
+            // second resampling pass for live meeting transcription.
             guard let mono = AVAudioFormat(
                 commonFormat: .pcmFormatFloat32,
-                sampleRate: inputFormat.sampleRate,
+                sampleRate: Self.whisperSampleRate,
                 channels: 1,
                 interleaved: false
             ) else { throw AudioCaptureError.formatUnsupported }
@@ -190,7 +194,8 @@ public final class MicRecorder {
         // Feed exactly this buffer, then report "no data for now" so the
         // converter keeps its resampling state alive for the next tap callback.
         var consumed = false
-        converter.convert(to: converted, error: nil) { _, outStatus in
+        var conversionError: NSError?
+        let conversionStatus = converter.convert(to: converted, error: &conversionError) { _, outStatus in
             if consumed {
                 outStatus.pointee = .noDataNow
                 return nil
@@ -199,15 +204,19 @@ public final class MicRecorder {
             outStatus.pointee = .haveData
             return buffer
         }
+        if conversionStatus == .error {
+            conversionFailures += 1
+            return
+        }
         guard converted.frameLength > 0 else { return }
 
         if let file {
             do {
                 try file.write(from: converted)
             } catch {
+                writeFailures += 1
                 Log.error("Mic file write failed: \(error.localizedDescription)")
             }
-            return
         }
         if let channelData = converted.floatChannelData {
             let chunk = Array(UnsafeBufferPointer(
@@ -215,8 +224,10 @@ public final class MicRecorder {
                 count: Int(converted.frameLength)
             ))
             sampleLock.lock()
-            samples.append(contentsOf: chunk)
-            activity.append(chunk)
+            if file == nil {
+                samples.append(contentsOf: chunk)
+                activity.append(chunk)
+            }
             let onSamples = _onSamples
             sampleLock.unlock()
             onSamples?(chunk)

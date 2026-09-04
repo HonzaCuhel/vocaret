@@ -12,7 +12,10 @@ public final class MeetingController {
     }
 
     public private(set) var state: State = .idle {
-        didSet { onStateChange?(state) }
+        didSet {
+            AppModel.shared.meetingState = state
+            onStateChange?(state)
+        }
     }
 
     public var onStateChange: ((State) -> Void)?
@@ -23,6 +26,9 @@ public final class MeetingController {
     private var systemURL: URL?
     private var startedAt: Date?
     private var isStarting = false
+    private var liveSession: MeetingTranscriptionSession?
+    private var generation = 0
+    private var recordingEngine = "whisper"
 
     public init() {}
 
@@ -40,7 +46,11 @@ public final class MeetingController {
 
     public func cancel() {
         guard state == .recording else { return }
+        generation += 1
         stopCapture()
+        cancelLiveSession()
+        AppModel.shared.liveMeetingTurns = []
+        AppModel.shared.meetingStartedAt = nil
         deleteRecordings()
         SoundPlayer.play(.stop)
         HUD.shared.hide()
@@ -52,7 +62,9 @@ public final class MeetingController {
     /// `Vocaret --transcribe <file>`.
     public func stopForTermination() {
         guard state == .recording else { return }
+        generation += 1
         stopCapture()
+        cancelLiveSession()
         MediaPauser.shared.resumeIfPausedNow()
         state = .idle
     }
@@ -105,7 +117,40 @@ public final class MeetingController {
             let micURL = recordingsDir.appendingPathComponent("\(timestamp)-mic.wav")
             let systemURL = recordingsDir.appendingPathComponent("\(timestamp)-system.wav")
 
+            generation += 1
+            let owner = generation
+            recordingEngine = SettingsStore.shared.asrEngine == "parakeet" ? "parakeet" : "whisper"
+            let engine = recordingEngine
+            AppModel.shared.liveMeetingTurns = []
+            AppModel.shared.meetingStatus = L("Preparing local speech model…")
+            let session = MeetingTranscriptionSession(
+                prepare: {
+                    await Transcriber.shared.beginMeeting(engine: engine)
+                    await MainActor.run {
+                        guard self.generation == owner, self.state == .recording else { return }
+                        AppModel.shared.meetingStatus = L("Listening — speech appears after a short pause")
+                    }
+                },
+                decode: { samples, offset in
+                    try await Transcriber.shared.transcribeMeetingChunk(samples: samples, offset: offset, engine: engine)
+                },
+                onUpdate: { result in
+                    await MainActor.run {
+                        guard self.generation == owner, self.state != .idle else { return }
+                        AppModel.shared.liveMeetingTurns = result.turns
+                        if result.needsRecovery {
+                            AppModel.shared.meetingStatus = L("Recording safely — remaining speech will be recovered after finishing")
+                        }
+                        if let turn = result.turns.last {
+                            HUD.shared.updatePartial("\(L(turn.speaker.label)): \(turn.text)")
+                        }
+                    }
+                }
+            )
+            liveSession = session
             let tap = SystemAudioTap()
+            tap.onSamples = { session.append($0, speaker: .them) }
+            micRecorder.onSamples = { session.append($0, speaker: .me) }
             do {
                 // Tap first: its start triggers the one-time system-audio permission.
                 try tap.start(writingTo: systemURL)
@@ -113,6 +158,10 @@ public final class MeetingController {
             } catch {
                 tap.stop()
                 micRecorder.stop()
+                cancelLiveSession()
+                generation += 1
+                try? FileManager.default.removeItem(at: micURL)
+                try? FileManager.default.removeItem(at: systemURL)
                 SoundPlayer.play(.error)
                 if case AudioCaptureError.tapCreationFailed = error {
                     HUD.shared.flash("System audio capture refused — allow Vocaret under System Audio Recording", seconds: 5)
@@ -133,12 +182,13 @@ public final class MeetingController {
             self.micURL = micURL
             self.systemURL = systemURL
             self.startedAt = Date()
+            AppModel.shared.meetingStartedAt = self.startedAt
             SoundPlayer.play(.start)
             state = .recording
             MediaPauser.shared.pauseIfPlaying()
             if SettingsStore.shared.cleanMeetings { LLMCleaner.shared.warmUp() }
             HUD.shared.beginRecording(
-                status: L("Recording meeting"),
+                status: L("Live meeting · On this Mac"),
                 hint: "\(SettingsStore.shared.meetingHotkeyLabel) · \(L("Press to finish"))",
                 level: { [weak micRecorder] in micRecorder?.level ?? 0 }
             )
@@ -147,30 +197,64 @@ public final class MeetingController {
 
     private func finish() {
         guard let micURL, let systemURL else { return }
-        var systemWasSilent = false
-        if #available(macOS 14.4, *), let tap = systemTap as? SystemAudioTap {
-            systemWasSilent = !tap.sawNonZeroSample
-        }
+        // Diagnostics are only safe to inspect once the IO queue has drained.
+        let stoppedTap = systemTap
         stopCapture()
+        var systemWasSilent = false
+        var systemCaptureFailed = false
+        var systemConversionFailed = false
+        let micCaptureFailed = micRecorder.writeFailures > 0 || micRecorder.conversionFailures > 0
+        if #available(macOS 14.4, *), let tap = stoppedTap as? SystemAudioTap {
+            systemWasSilent = !tap.sawNonZeroSample
+            systemCaptureFailed = tap.writeFailures > 0 || tap.bufferWrapFailures > 0
+            systemConversionFailed = tap.conversionFailures > 0
+        }
+        let session = liveSession
+        liveSession = nil
         SoundPlayer.play(.stop)
         state = .processing
         HUD.shared.beginTranscribing(
-            status: L("Transcribing meeting…"),
-            hint: L("This can take a few minutes")
+            status: L("Finishing meeting…"),
+            hint: L("Completing the last passages")
         )
 
+        AppModel.shared.meetingStatus = L("Completing the last passages")
         let startedAt = self.startedAt ?? Date()
         Task { @MainActor in
-            defer { state = .idle }
+            defer {
+                state = .idle
+                AppModel.shared.meetingStartedAt = nil
+                AppModel.shared.refreshMeetings()
+            }
 
-            // Transcribe sequentially — the Whisper actor serializes anyway,
-            // and this keeps peak memory to a single decode at a time.
-            let mine = (try? await Transcriber.shared.transcribe(fileURL: micURL)) ?? []
-            let theirs = (try? await Transcriber.shared.transcribe(fileURL: systemURL)) ?? []
+            var result = await session?.finish() ?? MeetingTranscriptionResult(failedSpeakers: [.me, .them])
+            if systemConversionFailed { result.failedSpeakers.insert(.them) }
+            let needsRecovery = result.needsRecovery
+            var recoveryFailed = systemCaptureFailed || micCaptureFailed
+            for speaker in [Speaker.me, .them] where result.failedSpeakers.contains(speaker) {
+                // A damaged WAV must not replace the useful live prefix.
+                if (speaker == .me && micCaptureFailed) || (speaker == .them && systemCaptureFailed) { continue }
+                AppModel.shared.meetingStatus = L("Recovering remaining speech from the recording…")
+                do {
+                    let segments = try await Transcriber.shared.transcribe(fileURL: speaker == .me ? micURL : systemURL)
+                    result.recover(speaker, from: segments)
+                } catch {
+                    recoveryFailed = true
+                    Log.error("Meeting recovery failed for \(speaker.label): \(error.localizedDescription)")
+                }
+            }
+            // The live worker may finish early on overflow. Keep its model
+            // lease until recovery is complete, then release it exactly once.
+            if session != nil { await Transcriber.shared.endMeeting() }
+            if needsRecovery { Log.info("Meeting recovery completed; incomplete=\(recoveryFailed)") }
+            let mine = result.mine
+            let theirs = result.theirs
+            AppModel.shared.liveMeetingTurns = result.turns
 
             if mine.isEmpty && theirs.isEmpty {
                 SoundPlayer.play(.error)
-                HUD.shared.flash("Meeting transcription produced no text", seconds: 4)
+                AppModel.shared.meetingStatus = L("No transcript — audio kept for recovery")
+                HUD.shared.flash(AppModel.shared.meetingStatus, seconds: 5)
                 return
             }
 
@@ -180,7 +264,8 @@ public final class MeetingController {
             var body = rawTranscript
             var structuringFailed = false
             if SettingsStore.shared.cleanMeetings {
-                HUD.shared.update("Structuring notes with local LLM…")
+                AppModel.shared.meetingStatus = L("Structuring notes with local LLM…")
+                HUD.shared.update(L("Structuring notes with local LLM…"))
                 if let structured = await LLMCleaner.shared.structureMeeting(markdownTranscript: rawTranscript) {
                     body = structured + "\n\n---\n\n## Raw transcript\n\n" + rawTranscript
                 } else {
@@ -189,6 +274,9 @@ public final class MeetingController {
             }
 
             var notes: [String] = []
+            if recoveryFailed {
+                notes.append("> ⚠️ Some speech could not be recovered. This transcript may be incomplete; raw audio has been kept in the recordings folder.")
+            }
             if systemWasSilent {
                 notes.append("> ⚠️ System audio was silent for the whole meeting — check System Settings → Privacy & Security → Screen & System Audio Recording, and pause music players next time.")
             }
@@ -211,22 +299,38 @@ public final class MeetingController {
                 try document.write(to: outputURL, atomically: true, encoding: .utf8)
             } catch {
                 SoundPlayer.play(.error)
-                HUD.shared.flash("Could not save transcript: \(error.localizedDescription)", seconds: 4)
+                AppModel.shared.meetingStatus = L("Could not save transcript — audio kept for recovery")
+                HUD.shared.flash(AppModel.shared.meetingStatus, seconds: 4)
                 return
             }
 
-            if !SettingsStore.shared.keepRecordings {
+            if !SettingsStore.shared.keepRecordings && !recoveryFailed {
                 deleteRecordings()
             }
 
-            if structuringFailed {
+            if recoveryFailed {
+                HUD.shared.flash(L("Partial transcript saved — audio kept for recovery"), seconds: 6)
+            } else if structuringFailed {
                 HUD.shared.flash("Transcript saved without AI structuring (LLM unavailable)", seconds: 5)
             } else if systemWasSilent {
                 HUD.shared.flash("Transcript saved — but system audio was silent (check permission)", seconds: 6)
             } else {
                 HUD.shared.flash("Meeting transcript saved", seconds: 3)
             }
-            NSWorkspace.shared.activateFileViewerSelecting([outputURL])
+            AppModel.shared.meetingStatus = recoveryFailed
+                ? L("Partial transcript saved — audio kept for recovery")
+                : L("Meeting transcript saved")
+            AppModel.shared.selectedSection = .meetings
+        }
+    }
+
+    private func cancelLiveSession() {
+        guard let session = liveSession else { return }
+        liveSession = nil
+        session.cancel()
+        Task {
+            _ = await session.finish()
+            await Transcriber.shared.endMeeting()
         }
     }
 

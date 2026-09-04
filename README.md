@@ -23,13 +23,13 @@
 
 <p align="center">
   <a href="https://honzacuhel.github.io/vocaret/#demo">
-    <img src="docs/assets/vocaret-live-poster.jpg" width="760"
-         alt="Vocaret demo: holding ⌃⌥D while a Czech sentence streams into the floating recorder panel">
+    <img src="docs/assets/vocaret-meetings-poster.jpg" width="760"
+         alt="Vocaret promo: local-first dictation and live meeting transcription with separate speaker labels">
   </a>
 </p>
 
 <p align="center">
-  <a href="https://honzacuhel.github.io/vocaret/#demo"><strong>▶ Watch the 17-second demo →</strong></a>
+  <a href="https://honzacuhel.github.io/vocaret/#demo"><strong>▶ Watch the 36-second product film →</strong></a>
 </p>
 
 > **Status: v0.2.0, early.** Used daily on one Mac; expect rough edges and read
@@ -43,7 +43,8 @@
 - **Local or live** — use local Whisper/Parakeet, or bring a Soniox key for live
   words with automatic local fallback.
 - **Meeting transcription** — `⌃⌥M` captures microphone and system audio as
-  `Me` / `Them`, without a virtual audio driver.
+  `Me` / `Them`, without a virtual audio driver. Local transcription runs during
+  the call, with live speaker-labelled passages in the Meetings window.
 - **Useful extras** — optional local Qwen or GPT-5 nano cleanup, searchable history, speaking
   metrics, meeting summaries, and automatic Spotify/Music pause and resume.
 - **Focused overlay** — see microphone level and up to four recent live lines
@@ -162,6 +163,14 @@ Restart Vocaret after changing defaults.
 
 ## Performance
 
+Meetings prepare the local speech model as recording starts and transcribe
+completed utterances during the call. Natural pauses release passages early;
+sustained speech is split into windows of at most 12 seconds. The final wait
+covers queued passages and optional local AI notes. On a slow machine or a cold
+model, a bounded queue can fall back to the WAV recording after the call.
+The Meetings library and selected document load off the UI thread.
+
+
 Warm Whisper dictation typically finishes in about one second; Parakeet is
 faster on clean speech. Soniox streams partial text; GPT-5 nano formats only
 after transcription. Both use network and paid API credit. For the lightest
@@ -191,6 +200,9 @@ swift build
 open -W -a ~/Applications/Vocaret.app --args --selftest all 8 --out /tmp/selftest.log
 .build/release/Vocaret --coach
 .build/release/Vocaret --render-window /tmp/ui
+.build/release/Vocaret --render-meetings /tmp/meeting-ui # synthetic light/dark previews
+.build/release/Vocaret --selftest meeting-stream # cached Whisper + synthetic speech; no capture
+open -W -n -a build/Vocaret.app --args --selftest meeting-live 8 --out /tmp/meeting-live.log
 ```
 
 An ad-hoc signature can require granting Accessibility again. To preserve the

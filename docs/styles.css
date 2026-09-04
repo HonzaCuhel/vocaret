@@ -150,7 +150,7 @@ a {
 
 .hero {
   position: relative;
-  min-height: min(730px, 100svh);
+  min-height: 800px;
   padding: clamp(112px, 12vh, 132px) clamp(26px, 7vw, 104px) 54px;
   background:
     radial-gradient(circle at 64% 62%, rgba(8, 28, 74, 0.25), transparent 42%),
@@ -284,7 +284,8 @@ h3 {
 .hero-actions {
   display: flex;
   align-items: center;
-  gap: 24px;
+  gap: 18px 24px;
+  flex-wrap: wrap;
   margin-top: 30px;
 }
 
@@ -350,12 +351,15 @@ h3 {
 }
 
 .demo-label {
+  display: flex;
+  align-items: center;
+  gap: 18px;
   position: absolute;
   z-index: 4;
   right: 44px;
-  top: -62px;
+  top: -74px;
   margin: 0;
-  color: #9fa8bc;
+  color: var(--paper-muted);
   font-size: 0.74rem;
 }
 
@@ -954,23 +958,6 @@ footer a {
   color: #fff;
 }
 
-.has-js [data-reveal] {
-  opacity: 0;
-  transform: translateY(24px);
-  transition:
-    opacity 700ms var(--ease-out),
-    transform 700ms var(--ease-out);
-}
-
-.has-js [data-reveal][data-reveal-delay="1"] {
-  transition-delay: 80ms;
-}
-
-.has-js [data-reveal].is-visible {
-  opacity: 1;
-  transform: translateY(0);
-}
-
 .sr-only {
   position: absolute;
   width: 1px;
@@ -1067,8 +1054,9 @@ footer a {
   }
 
   .hero {
-    min-height: max(844px, 100svh);
+    min-height: 0;
     padding-top: 110px;
+    padding-bottom: 42px;
   }
 
   .safe-frame {
@@ -1101,14 +1089,19 @@ footer a {
   }
 
   .caption-stage {
+    position: relative;
     right: auto;
-    bottom: 20px;
-    left: 22px;
-    width: calc(100% - 44px);
+    bottom: auto;
+    left: auto;
+    width: 100%;
+    margin-top: 62px;
   }
 
   .demo-label {
-    top: -30px;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+    top: -46px;
     right: auto;
     left: 8px;
     color: #c7cddd;
@@ -1232,17 +1225,94 @@ footer a {
     animation: none;
   }
 
-  .has-js [data-reveal] {
-    transform: none;
-    transition: opacity 200ms ease;
-    transition-delay: 0ms;
-  }
-
-  .has-js [data-reveal].is-visible {
-    transform: none;
-  }
-
   .transcript-copy p {
     transition: opacity 200ms ease;
   }
+}
+
+/* Release presentation: the same broadcast field, with native product proof. */
+section[id] { scroll-margin-top: 28px; }
+
+.demo-link { display: inline-flex; align-items: center; gap: 9px; min-height: 44px; }
+.demo-link svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.7; }
+
+.motion-toggle {
+  display: none;
+  min-height: 44px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--paper);
+  background: var(--deep);
+  font: inherit;
+  cursor: pointer;
+}
+.motion-toggle.is-ready { display: inline-block; }
+.motion-paused .live-dot,
+.motion-paused .meter i,
+.motion-paused .cursor { animation-play-state: paused; }
+
+.video-description { margin-top: 18px; color: var(--paper-muted); font-size: 0.9rem; }
+.video-description summary { width: fit-content; padding-block: 10px; cursor: pointer; color: var(--paper); }
+.video-description p { max-width: 78ch; line-height: 1.75; }
+
+.meeting-section {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: clamp(40px, 6vw, 96px);
+  align-items: center;
+  margin-top: clamp(48px, 6vw, 90px);
+  padding: clamp(72px, 8vw, 120px) clamp(26px, 7vw, 104px);
+  background: var(--deep);
+  border-block: 1px solid var(--line);
+}
+.meeting-section h2 { max-width: 14ch; font-size: clamp(3rem, 5vw, 5rem); }
+.meeting-lead { max-width: 57ch; margin: 26px 0 32px; color: var(--paper-muted); line-height: 1.75; }
+.meeting-benefits { margin: 0; }
+.meeting-benefits > div { padding: 22px 0; border-top: 1px solid var(--line); }
+.meeting-benefits dt { font-size: 1.16rem; font-weight: 700; }
+.meeting-benefits dd { max-width: 58ch; margin: 8px 0 0; color: var(--paper-muted); font-size: 0.95rem; line-height: 1.7; }
+.meeting-benefits strong { color: var(--paper); font-weight: 600; }
+.meeting-privacy { display: flex; gap: 12px; align-items: flex-start; margin: 24px 0 0; font-size: 0.9rem; line-height: 1.7; }
+.meeting-privacy svg { flex: none; width: 21px; height: 21px; margin-top: 2px; fill: none; stroke: var(--violet-bright); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.meeting-consent { color: var(--paper-muted); margin-top: 16px; font-size: 0.82rem; line-height: 1.7; }
+.meeting-consent a { display: inline-block; }
+.meeting-preview { min-width: 0; margin: 0; }
+.meeting-preview img { display: block; width: 100%; height: auto; border-radius: 12px; box-shadow: 0 24px 54px rgba(0, 0, 0, 0.35); }
+.meeting-preview figcaption { margin-top: 18px; color: var(--paper-muted); font-size: 0.79rem; line-height: 1.6; }
+
+.install-section :focus-visible { outline-color: var(--violet); }
+.copy-button { min-height: 44px; min-width: 54px; }
+.code-row { align-items: center; }
+.site-header nav a { min-height: 44px; display: inline-flex; align-items: center; }
+
+@media (hover: hover) and (pointer: fine) {
+  .motion-toggle:hover { border-color: var(--paper-muted); }
+  .video-description summary:hover { text-decoration: underline; text-underline-offset: 4px; }
+}
+
+@media (max-width: 1080px) {
+  .meeting-section { gap: 38px; }
+  .meeting-section h2 { font-size: 3.6rem; }
+  .engine-heading, .engine-rows article { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 28px; }
+  .engine-rows article > div { display: block; }
+  .engine-rows h3 { margin-top: 8px; }
+}
+
+@media (max-width: 760px) {
+  .meeting-section { grid-template-columns: 1fr; gap: 40px; }
+  .meeting-section h2 { font-size: clamp(3rem, 13vw, 4.6rem); }
+  .meeting-preview { max-width: 540px; }
+  .demo-label { left: 0; gap: 8px; width: 100%; justify-content: space-between; font-size: 0.67rem; }
+  .motion-toggle { padding-inline: 8px; }
+  .hero-copy { width: 100%; }
+  .section-intro, .engine-heading, .engine-rows article { grid-template-columns: minmax(0, 1fr); }
+  .demo-figure video { border-radius: 10px; }
+  .shortcut-table > div { gap: 18px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+  .hero-copy > *, .site-header, .caption-stage { opacity: 1; transform: none; }
+  .motion-toggle.is-ready { display: none; }
 }

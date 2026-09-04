@@ -47,7 +47,11 @@ server.
 
 1. On first launch Vocaret downloads the speech-recognition model (~1.6 GB for
    the default Whisper large-v3-turbo) from Hugging Face (`huggingface.co`,
-   repository `argmaxinc/whisperkit-coreml`).
+   repository `argmaxinc/whisperkit-coreml`) and its tokenizer files from the
+   matching `openai/whisper-*` repository (about 3 MB for the default model).
+   Both are cached under `~/Library/Application Support/Vocaret/Models/`,
+   outside iCloud-managed Documents. Updating from an older version downloads
+   the small tokenizer files once into this cache; it leaves the old cache alone.
 2. If you run `scripts/setup_llm.sh`, it downloads a language model (~2.4 GB)
    from Hugging Face and installs `llama.cpp` via Homebrew.
 3. Only if you switch Settings → Speech engine to Parakeet: the NVIDIA Parakeet
@@ -57,6 +61,19 @@ server.
 After local model downloads, Whisper/Parakeet with local Qwen cleanup works
 offline. Soniox and GPT-5 nano each require networking and their own paid API
 access.
+
+## Live meetings
+
+Meeting transcription always runs locally, including when Soniox is selected
+for dictation. Microphone and system audio are transcribed in short passages
+during the call. The microphone WAV is stored as 16 kHz mono; system audio keeps
+its native format. The live audio queue is capped at 120 seconds of mono samples
+combined across both tracks (about 7.7 MB), plus the current utterances.
+
+If the queue fills or a passage fails, Vocaret retries from the recording after
+the call. If recovery or saving fails, the raw WAV files remain on disk even
+when automatic deletion is enabled. A partial transcript is marked as incomplete.
+Optional meeting summaries continue to use only the local LLM.
 
 ## What is stored on your Mac, and where
 

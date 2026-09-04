@@ -13,7 +13,7 @@ public struct SpokenSegment: Equatable, Sendable {
     }
 }
 
-public enum Speaker: Equatable, Sendable {
+public enum Speaker: Hashable, Sendable {
     case me
     case them
 

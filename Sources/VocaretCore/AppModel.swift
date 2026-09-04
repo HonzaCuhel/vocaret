@@ -28,6 +28,13 @@ public final class AppModel: ObservableObject {
     @Published public var speechEngineReady = false
     @Published public var selectedSection: MainSection = .dashboard
 
+    @Published public var meetingState: MeetingController.State = .idle
+    @Published public var meetingStartedAt: Date?
+    @Published public var liveMeetingTurns: [MergedTurn] = []
+    @Published public var meetingStatus = ""
+    public var toggleMeeting: (() -> Void)?
+    private var meetingsRefreshTask: Task<Void, Never>?
+
     private var listenerToken: UUID?
     private var coachURL: URL { SettingsStore.shared.appSupportDir.appendingPathComponent("coach-report.json") }
 
@@ -78,10 +85,21 @@ public final class AppModel: ObservableObject {
 
     public func refreshMeetings() {
         let dir = SettingsStore.shared.meetingsDir
+        meetingsRefreshTask?.cancel()
+        meetingsRefreshTask = Task {
+            let loaded = await Task.detached(priority: .utility) {
+                Self.readMeetings(in: dir)
+            }.value
+            guard !Task.isCancelled else { return }
+            meetings = loaded
+        }
+    }
+
+    nonisolated private static func readMeetings(in dir: URL) -> [MeetingFile] {
         let files = (try? FileManager.default.contentsOfDirectory(
             at: dir, includingPropertiesForKeys: [.contentModificationDateKey], options: [.skipsHiddenFiles]
         )) ?? []
-        meetings = files
+        return files
             .filter { $0.pathExtension == "md" }
             .compactMap { url -> MeetingFile? in
                 guard let text = try? String(contentsOf: url, encoding: .utf8) else { return nil }

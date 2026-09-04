@@ -1,41 +1,22 @@
 const transcriptLines = [
   "Capture the idea while it’s fresh.",
   "Dneska projdu výsledky.",
-  "Audio stays local on this Mac.",
-  "Soniox streams words live.",
+  "The right words, in the right place.",
+  "One shortcut. Keep the thought.",
   "Pak pustím zkratku. Text se vloží.",
   "No window change. Keep moving.",
   "Let’s ship it.",
 ];
 
 const transcript = document.querySelector("[data-transcript]");
+const stage = document.querySelector(".caption-stage");
+const motionButton = document.querySelector("[data-motion]");
 const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
-const revealElements = document.querySelectorAll("[data-reveal]");
 let transcriptIndex = 4;
-
-function revealAll() {
-  revealElements.forEach((element) => element.classList.add("is-visible"));
-}
-
-if (!("IntersectionObserver" in window) || reduceMotion.matches) {
-  revealAll();
-} else {
-  const revealObserver = new IntersectionObserver((entries) => {
-    entries.forEach((entry) => {
-      if (!entry.isIntersecting) return;
-      entry.target.classList.add("is-visible");
-      revealObserver.unobserve(entry.target);
-    });
-  }, {
-    rootMargin: "0px 0px -8%",
-    threshold: 0.12,
-  });
-
-  revealElements.forEach((element) => revealObserver.observe(element));
-  reduceMotion.addEventListener("change", (event) => {
-    if (event.matches) revealAll();
-  }, { once: true });
-}
+let transcriptInterval;
+let transcriptTimeout;
+let manuallyPaused = false;
+let stageVisible = true;
 
 function renderTranscript() {
   if (!transcript) return;
@@ -43,9 +24,8 @@ function renderTranscript() {
     const index = (transcriptIndex - 3 + offset + transcriptLines.length) % transcriptLines.length;
     return transcriptLines[index];
   });
-
   transcript.classList.add("is-updating");
-  window.setTimeout(() => {
+  transcriptTimeout = window.setTimeout(() => {
     const paragraphs = transcript.querySelectorAll("p");
     paragraphs.forEach((paragraph, index) => {
       paragraph.textContent = visible[index];
@@ -60,27 +40,54 @@ function renderTranscript() {
   }, 180);
 }
 
-if (transcript && !reduceMotion.matches) {
-  window.setInterval(renderTranscript, 2_600);
+function updateMotion() {
+  window.clearInterval(transcriptInterval);
+  window.clearTimeout(transcriptTimeout);
+  transcript?.classList.remove("is-updating");
+  const paused = manuallyPaused || reduceMotion.matches || document.hidden || !stageVisible;
+  stage?.classList.toggle("motion-paused", paused);
+  if (transcript && !paused) transcriptInterval = window.setInterval(renderTranscript, 2_600);
+  if (motionButton) {
+    motionButton.textContent = manuallyPaused ? "Resume animation" : "Pause animation";
+    motionButton.setAttribute("aria-pressed", String(manuallyPaused));
+  }
 }
 
+motionButton?.classList.add("is-ready");
+motionButton?.addEventListener("click", () => {
+  manuallyPaused = !manuallyPaused;
+  updateMotion();
+});
+reduceMotion.addEventListener("change", updateMotion);
+document.addEventListener("visibilitychange", updateMotion);
+if (stage && "IntersectionObserver" in window) {
+  new IntersectionObserver(([entry]) => {
+    stageVisible = entry.isIntersecting;
+    updateMotion();
+  }).observe(stage);
+}
+updateMotion();
+
+const copyStatus = document.querySelector("[data-copy-status]");
 document.querySelectorAll("[data-copy]").forEach((button) => {
+  let resetTimeout;
   button.addEventListener("click", async () => {
     const target = document.getElementById(button.dataset.copy);
     if (!target) return;
-
+    window.clearTimeout(resetTimeout);
     try {
       await navigator.clipboard.writeText(target.textContent.trim());
       button.dataset.copied = "true";
       button.querySelector("span").textContent = "Copied";
-      window.setTimeout(() => {
+      if (copyStatus) copyStatus.textContent = "Command copied to clipboard.";
+      resetTimeout = window.setTimeout(() => {
         delete button.dataset.copied;
         button.querySelector("span").textContent = "Copy";
       }, 1_500);
     } catch {
-      target.focus?.();
       window.getSelection()?.selectAllChildren(target);
-      button.querySelector("span").textContent = "Select text";
+      button.querySelector("span").textContent = "Selected";
+      if (copyStatus) copyStatus.textContent = "Clipboard unavailable. The command is selected; press Control+C or Command+C to copy.";
     }
   });
 });

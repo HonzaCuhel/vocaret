@@ -2,6 +2,7 @@ import AppKit
 import AVFoundation
 import Foundation
 import SwiftUI
+import WhisperKit
 
 /// Hidden headless verification modes that exercise the *real* runtime paths
 /// (mic capture, system-audio tap, LLM client, hotkeys, paste) without a
@@ -12,6 +13,8 @@ import SwiftUI
 ///     Vocaret --selftest tap [seconds] [--out file]
 ///     Vocaret --selftest llm [--out file]
 ///     Vocaret --selftest meeting [seconds] [--out file]
+///     Vocaret --selftest meeting-stream [--out file]
+///     Vocaret --selftest meeting-live [seconds] [--out file]
 ///     Vocaret --selftest keys [--out file]      (needs Accessibility)
 ///     Vocaret --selftest all [--out file]
 ///
@@ -51,6 +54,8 @@ public enum SelfTest {
             case "tap": await tapTest(seconds: seconds)
             case "llm": await llmTest()
             case "meeting": await meetingTest(seconds: seconds)
+            case "meeting-stream": await meetingStreamTest()
+            case "meeting-live": await liveMeetingCaptureTest(seconds: seconds)
             case "keys": await keysTest()
             case "hud": await hudTest()
             case "media": await mediaTest()
@@ -210,6 +215,134 @@ public enum SelfTest {
         check(sliceCount >= 2, "[llm] long transcript was sliced")
         check(!longNotes.isEmpty && longNotes.contains("Summary"), "[llm] long-meeting notes produced with a summary")
         check(!longNotes.contains("context limit reached"), "[llm] long-meeting notes not truncated")
+    }
+
+    /// Real local inference with synthetic audio streamed at capture cadence.
+    /// No microphone, system tap, cloud request, cleanup model, or audio playback.
+    @MainActor
+    static func meetingStreamTest() async {
+        let model = SettingsStore.shared.whisperModel
+        let folder = SettingsStore.shared.modelsDir
+            .appendingPathComponent("models/argmaxinc/whisperkit-coreml/\(model)/TextDecoder.mlmodelc")
+        guard FileManager.default.fileExists(atPath: folder.path) else {
+            fail("[meeting-stream] selected Whisper model is not cached; test will not download it")
+            return
+        }
+        do {
+            let fixture = scratchURL("selftest-stream-fixture.aiff")
+            defer { try? FileManager.default.removeItem(at: fixture) }
+            let say = Process()
+            say.executableURL = URL(fileURLWithPath: "/usr/bin/say")
+            say.arguments = ["-o", fixture.path, englishSample]
+            try say.run()
+            await Task.detached { say.waitUntilExit() }.value
+            guard say.terminationStatus == 0 else {
+                fail("[meeting-stream] could not synthesize fixture")
+                return
+            }
+            let speech = try AudioProcessor.loadAudioAsFloatArray(fromPath: fixture.path)
+            emit("[meeting-stream] preparing cached local model…")
+            await Transcriber.shared.beginMeeting(engine: "whisper")
+            var updatesBeforeStop = 0
+            let session = MeetingTranscriptionSession(
+                decode: { samples, offset in
+                    try await Transcriber.shared.transcribeMeetingChunk(samples: samples, offset: offset, engine: "whisper")
+                }, onUpdate: { result in
+                    await MainActor.run { updatesBeforeStop += 1 }
+                    emit("[meeting-stream] live update: \(result.mine.count) mic / \(result.theirs.count) system segments")
+                }
+            )
+            let track = speech + [Float](repeating: 0, count: 48_000)
+            for start in stride(from: 0, to: track.count, by: 4_000) {
+                let packet = Array(track[start..<min(start + 4_000, track.count)])
+                session.append(packet, speaker: .me)
+                session.append(packet, speaker: .them)
+                try await Task.sleep(for: .milliseconds(250))
+            }
+            let liveCount = updatesBeforeStop
+            let stopped = Date()
+            let result = await session.finish()
+            let tailSeconds = Date().timeIntervalSince(stopped)
+            await Transcriber.shared.endMeeting()
+            check(liveCount > 0, "[meeting-stream] transcript arrived before stopping")
+            check(!result.mine.isEmpty && !result.theirs.isEmpty, "[meeting-stream] both tracks produced speech")
+            check(!result.needsRecovery, "[meeting-stream] no lost audio or recovery")
+            emit(String(format: "[meeting-stream] finalization after stop %.3fs; updates before stop %d", tailSeconds, liveCount))
+        } catch {
+            fail("[meeting-stream] \(error.localizedDescription)")
+        }
+    }
+
+    /// Actual capture callbacks → bounded live stream → local inference.
+    /// Temporary audio is removed and only counts/checks are logged.
+    @MainActor
+    static func liveMeetingCaptureTest(seconds: Double) async {
+        guard #available(macOS 14.4, *) else { fail("[meeting-live] needs macOS 14.4"); return }
+        let model = SettingsStore.shared.whisperModel
+        let folder = SettingsStore.shared.modelsDir
+            .appendingPathComponent("models/argmaxinc/whisperkit-coreml/\(model)/TextDecoder.mlmodelc")
+        guard FileManager.default.fileExists(atPath: folder.path) else {
+            fail("[meeting-live] selected Whisper model is not cached; test will not download it")
+            return
+        }
+        emit("[meeting-live] requesting microphone permission…")
+        guard await Permissions.requestMicrophone() else { fail("[meeting-live] microphone denied"); return }
+        emit("[meeting-live] preparing cached local model…")
+        await Transcriber.shared.beginMeeting(engine: "whisper")
+        let micURL = scratchURL("selftest-live-mic-\(UUID().uuidString).wav")
+        let systemURL = scratchURL("selftest-live-system-\(UUID().uuidString).wav")
+        let tap = SystemAudioTap()
+        let mic = MicRecorder()
+        let micCount = SampleCounter()
+        let systemCount = SampleCounter()
+        var updates = 0
+        let session = MeetingTranscriptionSession(decode: { samples, offset in
+            try await Transcriber.shared.transcribeMeetingChunk(samples: samples, offset: offset, engine: "whisper")
+        }, onUpdate: { _ in await MainActor.run { updates += 1 } })
+        mic.onSamples = { samples in micCount.append(samples); session.append(samples, speaker: .me) }
+        tap.onSamples = { samples in systemCount.append(samples); session.append(samples, speaker: .them) }
+        defer {
+            tap.stop(); mic.stop()
+            try? FileManager.default.removeItem(at: micURL)
+            try? FileManager.default.removeItem(at: systemURL)
+        }
+        do {
+            try tap.start(writingTo: systemURL)
+            try mic.startToFile(url: micURL)
+        } catch {
+            session.cancel()
+            _ = await session.finish()
+            await Transcriber.shared.endMeeting()
+            fail("[meeting-live] capture start: \(error.localizedDescription)")
+            return
+        }
+        emit("[meeting-live] capturing real microphone and system audio; playing synthetic speech")
+        let speaker = speak(englishSample, voice: nil)
+        if let speaker { await Task.detached { speaker.waitUntilExit() }.value }
+        try? await Task.sleep(for: .seconds(max(3, seconds)))
+        tap.stop(); mic.stop()
+        let liveUpdates = updates
+        let stopped = Date()
+        let result = await session.finish()
+        await Transcriber.shared.endMeeting()
+        check(micCount.count > 16_000, "[meeting-live] microphone delivered live 16 kHz samples")
+        check(systemCount.count > 16_000, "[meeting-live] system tap delivered live 16 kHz samples")
+        check(mic.writeFailures == 0 && mic.conversionFailures == 0, "[meeting-live] microphone writes and conversion succeeded")
+        check(tap.writeFailures == 0 && tap.conversionFailures == 0 && tap.bufferWrapFailures == 0,
+              "[meeting-live] system writes and conversion succeeded")
+        check(wavStats(micURL) != nil && wavStats(systemURL) != nil, "[meeting-live] both recovery WAVs readable")
+        check(liveUpdates > 0, "[meeting-live] text arrived during capture")
+        check(!result.theirs.isEmpty, "[meeting-live] real system audio produced transcript")
+        check(!result.needsRecovery, "[meeting-live] no dropped audio or recovery")
+        emit(String(format: "[meeting-live] micSamples=%d systemSamples=%d micSegments=%d systemSegments=%d tail=%.3fs",
+                    micCount.count, systemCount.count, result.mine.count, result.theirs.count, Date().timeIntervalSince(stopped)))
+    }
+
+    private final class SampleCounter: @unchecked Sendable {
+        private let lock = NSLock()
+        private var samples = 0
+        var count: Int { lock.lock(); defer { lock.unlock() }; return samples }
+        func append(_ chunk: [Float]) { lock.lock(); defer { lock.unlock() }; samples += chunk.count }
     }
 
     /// Full meeting pipeline minus hotkey/HUD: both tracks → transcribe → merge → (LLM) → markdown.

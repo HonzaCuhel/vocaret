@@ -10,6 +10,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         Appearance.apply(SettingsStore.shared.appearance)
         MainWindowController.installMainMenu()
         statusController = StatusItemController(dictation: dictation, meeting: meeting)
+        AppModel.shared.toggleMeeting = { [weak self] in self?.meeting.toggle() }
         registerHotkeys()
         LLMCleaner.shared.reapStaleServer()
         MediaPauser.shared.primePermissions()

@@ -1,0 +1,8 @@
+node_modules/
+.hyperframes/
+.media/
+renders/
+snapshots/
+*.log
+check-result.json
+keyframes-result.json

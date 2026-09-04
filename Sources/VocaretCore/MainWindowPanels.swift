@@ -1,68 +1,6 @@
 import AppKit
 import SwiftUI
 
-// MARK: - Meetings
-
-struct MeetingsView: View {
-    @EnvironmentObject var model: AppModel
-    @State private var selection: MeetingFile.ID?
-    @State private var copied = false
-
-    var body: some View {
-        HStack(spacing: 0) {
-            List(model.meetings, selection: $selection) { meeting in
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(meeting.title).lineLimit(1)
-                    Text(meeting.preview).lineLimit(2).font(.caption).foregroundStyle(.secondary)
-                    Text("\(meeting.wordCount) words").font(.caption2).foregroundStyle(.tertiary)
-                }
-                .padding(.vertical, 3)
-                .tag(meeting.id)
-            }
-            .listStyle(.inset)
-            .frame(minWidth: 300, idealWidth: 360, maxWidth: 440)
-
-            Divider()
-
-            if let meeting = model.meetings.first(where: { $0.id == selection }) {
-                let text = model.meetingText(meeting)
-                VStack(alignment: .leading, spacing: 12) {
-                    ScrollView {
-                        MarkdownText(text)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    HStack {
-                        Button {
-                            model.copy(text); copied = true
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) { copied = false }
-                        } label: { Label(copied ? L("Copied") : L("Copy transcript"), systemImage: copied ? "checkmark" : "doc.on.doc") }
-                        Button { model.reveal(meeting) } label: { Label(L("Show in Finder"), systemImage: "folder") }
-                        Button { NSWorkspace.shared.open(meeting.url) } label: { Label(L("Open"), systemImage: "arrow.up.forward.app") }
-                        Spacer()
-                    }
-                }
-                .padding(20)
-                .frame(minWidth: 380, maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            } else {
-                ContentUnavailableView(
-                    "No meeting selected",
-                    systemImage: "person.2.wave.2",
-                    description: Text(model.meetings.isEmpty
-                        ? "Press \(SettingsStore.shared.meetingHotkeyLabel) during a call. The transcript lands here — and only here."
-                        : "\(model.meetings.count) transcripts in ~/Documents/Vocaret/Meetings")
-                )
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-        }
-        .navigationTitle(L("Meetings"))
-        .toolbar {
-            ToolbarItem { Button { model.refreshMeetings() } label: { Label(L("Refresh"), systemImage: "arrow.clockwise") } }
-            ToolbarItem { Button { NSWorkspace.shared.open(SettingsStore.shared.meetingsDir) } label: { Label(L("Open folder"), systemImage: "folder") } }
-        }
-        .onAppear { model.refreshMeetings() }
-    }
-}
-
 /// Renders our own Markdown (headings, bold, bullets) well enough to read
 /// meeting notes; falls back to plain text for anything exotic.
 struct MarkdownText: View {
