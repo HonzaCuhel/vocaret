@@ -159,4 +159,44 @@ final class CompanionTests: XCTestCase {
         }
     }
 
+    @MainActor func testRememberRequiresExplicitSaveAndPreservesExistingMemory() throws {
+        let model = CompanionModel(directory: directory)
+        try model.store.saveMemory("# Memory\nPiš česky.", replacing: "")
+        model.noteDictation("  Projekt se jmenuje Sad.  ")
+        XCTAssertFalse(model.busy)
+        XCTAssertFalse(model.editingMemory)
+        XCTAssertEqual(try model.store.memory(), "# Memory\nPiš česky.")
+        model.rememberLastDictation()
+        XCTAssertEqual(model.memoryDraft, "# Memory\nPiš česky.\n\nProjekt se jmenuje Sad.")
+        XCTAssertTrue(model.editingMemory)
+        XCTAssertFalse(model.busy)
+        XCTAssertTrue(model.messages.isEmpty)
+        XCTAssertEqual(try model.store.memory(), "# Memory\nPiš česky.")
+        model.saveMemory()
+        XCTAssertEqual(try model.store.memory(), model.memoryDraft)
+        XCTAssertFalse(model.editingMemory)
+        XCTAssertFalse(model.expanded)
+    }
+
+    @MainActor func testRememberEmptyBusyCaptureAndCancelDoNotWriteMemory() throws {
+        let model = CompanionModel(directory: directory)
+        model.noteDictation(" \n ")
+        model.rememberLastDictation()
+        XCTAssertFalse(model.editingMemory)
+        model.noteDictation("Remember me")
+        model.capturing = true
+        model.rememberLastDictation()
+        XCTAssertFalse(model.editingMemory)
+        model.capturing = false
+        model.busy = true
+        model.rememberLastDictation()
+        XCTAssertFalse(model.editingMemory)
+        model.busy = false
+        model.rememberLastDictation()
+        model.closeMemory()
+        XCTAssertEqual(try model.store.memory(), "")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: model.store.memoryURL.path))
+        XCTAssertFalse(model.expanded)
+    }
+
 }

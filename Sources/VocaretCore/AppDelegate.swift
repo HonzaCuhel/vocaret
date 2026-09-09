@@ -11,6 +11,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         MainWindowController.installMainMenu()
         statusController = StatusItemController(dictation: dictation, meeting: meeting)
         AppModel.shared.toggleMeeting = { [weak self] in self?.meeting.toggle() }
+        CompanionModel.shared.noteDictation(TranscriptHistory.shared.last?.text ?? "")
         dictation.transcriptDestination = {
             guard CompanionModel.shared.mode == .chat else { return nil }
             return { CompanionModel.shared.acceptDictation($0) }

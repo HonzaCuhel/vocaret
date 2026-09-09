@@ -84,7 +84,7 @@ struct CompanionView: View {
                     .font(.system(size: 12, design: .monospaced)).scrollContentBackground(.hidden)
                     .frame(height: 170).accessibilityLabel(L("Memory document"))
                 HStack {
-                    Button(L("Cancel")) { companion.editingMemory = false }
+                    Button(L("Cancel")) { companion.closeMemory() }
                     Spacer()
                     Button(L("Save memory")) { companion.saveMemory() }.buttonStyle(.borderedProminent)
                 }
@@ -188,6 +188,23 @@ struct CompanionView: View {
             }
             if recording, let status = companion.mediaStatus {
                 Text(status).font(.system(size: 10)).foregroundStyle(.orange).lineLimit(2)
+            }
+            if companion.mode == .dictation {
+                HStack(spacing: 8) {
+                    Button {
+                        companion.rememberLastDictation()
+                        HUD.shared.resizeCompanion()
+                    } label: {
+                        Label(L("Remember"), systemImage: "brain.head.profile")
+                    }
+                    .disabled(companion.lastDictation.isEmpty || companion.busy || companion.capturing)
+                    .help(L("Review the last dictation before saving it to memory. No agent call."))
+                    Spacer(minLength: 0)
+                    Text(L("Last dictation · Saved on this Mac"))
+                        .foregroundStyle(.secondary).lineLimit(1)
+                }
+                .font(.system(size: 11))
+                .padding(.vertical, 5)
             }
             HStack(spacing: 4) {
                 modeButton(.dictation, "waveform", "Dictate")

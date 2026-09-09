@@ -30,6 +30,9 @@ public enum L10n {
         "Media pause needs Automation permission.": "Pozastavení médií potřebuje oprávnění Automatizace.",
         "YouTube: enable Allow JavaScript from Apple Events in your browser.": "YouTube: v prohlížeči povol JavaScript z událostí Apple.",
         "Account usage limit reached. Retry after the account limit resets.": "Limit účtu je vyčerpaný. Zkus to znovu po jeho obnovení.",
+        "Remember": "Zapamatovat",
+        "Last dictation · Saved on this Mac": "Poslední diktování · Lokálně",
+        "Review the last dictation before saving it to memory. No agent call.": "Před uložením do paměti zkontroluj poslední diktování. Bez volání agenta.",
         // Floating companion
         "Memory": "Paměť",
         "Conversation": "Konverzace",

@@ -156,3 +156,8 @@ video source and playback position. Closing or navigating a tab discards its
 marker. Allow JavaScript from Apple Events must be enabled in the chosen browser;
 denied permissions are skipped. Spotify and Music continue to use their native
 playback-state controls. Meeting capture never mutes system audio globally.
+
+The Dictate panel's **Remember** button prepares a local memory draft containing
+the last completed dictation. It makes no Codex/Claude request and does not change
+the saved memory until you press Save memory. Cancel discards the draft. Saved
+memory is included only in subsequent explicit agent requests, as described above.

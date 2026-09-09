@@ -514,6 +514,7 @@ public final class DictationController {
                     vocabulary: Vocabulary.shared,
                     language: transcriptLanguage
                 )
+                CompanionModel.shared.noteDictation(text)
                 // Record BEFORE inserting: whatever happens next, the
                 // transcript is retrievable from the menu and the History tab.
                 TranscriptHistory.shared.record(DictationRecord(

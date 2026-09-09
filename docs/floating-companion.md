@@ -19,6 +19,11 @@ output, ephemeral sessions and no configuration/hook installation. Codex uses
 read-only sandboxing and ignores user configuration; Claude has no tools, hooks
 or MCP servers. CLI upgrades may change flags; failures are shown in the panel.
 
+The **Remember** button under Dictate opens the last completed dictation as a
+proposed addition to the existing memory. Edit it, then click **Save memory** to
+apply it, or Cancel to discard it. This action runs entirely locally and makes
+no agent request. Ordinary dictation only updates the available last text.
+
 The brain icon edits Vocaret's memory document. To ask an agent for an edit, type
 an instruction in Chat, then choose **Propose memory edit**. Review the returned
 complete document and click **Save memory**. Existing memory is sent with future

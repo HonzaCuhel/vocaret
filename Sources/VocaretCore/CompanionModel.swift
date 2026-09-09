@@ -62,6 +62,7 @@ final class CompanionModel: ObservableObject {
     @Published var agent: CompanionAgent = .codex
     @Published var messages: [ConversationMessage] = []
     @Published var input = ""
+    @Published private(set) var lastDictation = ""
     @Published var busy = false
     @Published var error: String?
     @Published var editingMemory = false
@@ -79,6 +80,28 @@ final class CompanionModel: ObservableObject {
     init(directory: URL? = nil) {
         store = CompanionStore(directory: directory ?? SettingsStore.shared.appSupportDir.appendingPathComponent("Companion"))
         do { messages = try store.history() } catch { self.error = error.localizedDescription }
+    }
+
+    /// Retain text locally; remembering is always an explicit user action.
+    func noteDictation(_ text: String) {
+        lastDictation = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    func rememberLastDictation() {
+        guard !busy, !capturing, !lastDictation.isEmpty else { return }
+        do {
+            memoryBase = try store.memory()
+            let separator = memoryBase.isEmpty ? "" : (memoryBase.hasSuffix("\n\n") ? "" : memoryBase.hasSuffix("\n") ? "\n" : "\n\n")
+            memoryDraft = memoryBase + separator + lastDictation
+            editingMemory = true
+            expanded = true
+            error = nil
+        } catch { self.error = error.localizedDescription }
+    }
+
+    func closeMemory() {
+        editingMemory = false
+        expanded = mode != .dictation
     }
 
     func acceptDictation(_ text: String) {
@@ -101,7 +124,7 @@ final class CompanionModel: ObservableObject {
         do {
             try store.saveMemory(memoryDraft, replacing: memoryBase)
             memoryBase = memoryDraft
-            editingMemory = false
+            closeMemory()
             error = nil
         } catch { self.error = error.localizedDescription }
     }
