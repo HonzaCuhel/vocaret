@@ -71,9 +71,9 @@ Reference commit: `5bbc049b4a7cbff90f5fee24a63b8cd7e8989bf8`.
 - `Vocaret --selftest hud --out build/verification/companion/hud-runtime.log`:
   checks recorder state transitions and native rendering.
 
-Live check on 2026-09-09: Codex conversation recall and memory proposal passed.
-Claude returned a session quota limit, so its successful cloud reply is not yet
-verified. Chrome Apple Events did not complete the permission request in the
+Live checks on 2026-09-09: both Codex and Claude passed conversation-context
+recall and memory proposal tests. Claude initially hit its session quota; the
+repeat after reset succeeded. Chrome Apple Events did not complete the permission request in the
 bounded probe; real YouTube playback remains unverified on this Mac. A subsequent
 Spotify runtime test passed pause, resume, repeated resume and rapid pause/resume.
 JavaScript tests cover pause/resume ownership, repeated resume,
