@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 /// Floating recorder pill near the bottom of the active screen. Non-activating,
-/// so keyboard focus stays in the user's app. Renders `RecorderPillView`; while
+/// so keyboard focus stays in the user's app. Renders `CompanionView`; while
 /// recording it animates with the live microphone level.
 ///
 /// Two kinds of message: persistent (`show`/`update`, e.g. "● Recording…")
@@ -14,7 +14,8 @@ public final class HUD {
     public let model = RecorderModel()
 
     private var panel: NSPanel?
-    private var hosting: NSHostingView<RecorderPillView>?
+    private var hosting: NSHostingView<CompanionView>?
+    private var companionVisible = false
     private var persistentText: String?
     private var generation = 0
 
@@ -89,7 +90,23 @@ public final class HUD {
         model.startedAt = nil
         model.endInteraction()
         model.phase = .hidden
+        if companionVisible && SettingsStore.shared.showHUD { present() } else { panel?.orderOut(nil) }
+    }
+
+    func showCompanion() {
+        companionVisible = true
+        SettingsStore.shared.showHUD = true
+        present()
+    }
+
+    func dismissCompanion() {
+        companionVisible = false
         panel?.orderOut(nil)
+    }
+
+    func resizeCompanion() {
+        layout()
+        DispatchQueue.main.async { [weak self] in self?.layout() }
     }
 
     private func present() {
@@ -101,7 +118,7 @@ public final class HUD {
     }
 
     private func build() {
-        let panel = NSPanel(
+        let panel = CompanionPanel(
             contentRect: NSRect(x: 0, y: 0, width: 360, height: 60),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
@@ -111,11 +128,12 @@ public final class HUD {
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = false // the SwiftUI pill draws its own
-        panel.ignoresMouseEvents = true
+        panel.ignoresMouseEvents = false
+        panel.isMovableByWindowBackground = true
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.hidesOnDeactivate = false
 
-        let hosting = NSHostingView(rootView: RecorderPillView(model: model))
+        let hosting = NSHostingView(rootView: CompanionView(recorder: model, companion: .shared, app: .shared))
         hosting.translatesAutoresizingMaskIntoConstraints = false
         let container = NSView()
         container.addSubview(hosting)
@@ -130,10 +148,23 @@ public final class HUD {
 
     private func layout() {
         guard let panel else { return }
-        let screen = NSScreen.main ?? NSScreen.screens.first
+        let screen = panel.screen ?? NSScreen.main ?? NSScreen.screens.first
         guard let screenFrame = screen?.visibleFrame else { return }
-        let size = RecorderHUDLayout.panelSize(transcript: model.presentedPartialText)
-        let origin = NSPoint(x: screenFrame.midX - size.width / 2, y: screenFrame.minY + 84)
+        let companion = CompanionModel.shared
+        let expanded = companion.expanded || companion.mode != .dictation || companion.editingMemory
+        let fittingHeight = hosting?.fittingSize.height ?? 0
+        let height = fittingHeight > 80 ? fittingHeight : (expanded ? 640 : 220)
+        let size = NSSize(width: 460, height: min(screenFrame.height, height))
+        let previous = panel.frame
+        let x = panel.isVisible ? previous.minX : screenFrame.midX - size.width / 2
+        let y = panel.isVisible ? previous.minY : screenFrame.minY + 60
+        let origin = NSPoint(x: min(max(x, screenFrame.minX), screenFrame.maxX - size.width),
+                             y: min(max(y, screenFrame.minY), screenFrame.maxY - size.height))
         panel.setFrame(NSRect(origin: origin, size: size), display: true)
     }
+}
+
+private final class CompanionPanel: NSPanel {
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { false }
 }

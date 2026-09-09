@@ -11,6 +11,17 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         MainWindowController.installMainMenu()
         statusController = StatusItemController(dictation: dictation, meeting: meeting)
         AppModel.shared.toggleMeeting = { [weak self] in self?.meeting.toggle() }
+        dictation.transcriptDestination = {
+            guard CompanionModel.shared.mode == .chat else { return nil }
+            return { CompanionModel.shared.acceptDictation($0) }
+        }
+        CompanionModel.shared.toggleRecording = { [weak self] in
+            guard let self else { return }
+            if CompanionModel.shared.mode == .meeting { self.meeting.toggle() }
+            else { self.dictation.toggle() }
+        }
+        CompanionModel.shared.cancelRecording = { [weak self] in self?.dictation.cancel(); self?.meeting.cancel() }
+        if SettingsStore.shared.showHUD { HUD.shared.showCompanion() }
         registerHotkeys()
         LLMCleaner.shared.reapStaleServer()
         MediaPauser.shared.primePermissions()
@@ -85,6 +96,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
     public func applicationWillTerminate(_ notification: Notification) {
         // Finalize any WAV being written and free the LLM server.
+        CompanionModel.shared.cancel()
         meeting.stopForTermination()
         dictation.stopForTermination()
         LLMCleaner.shared.terminateServerNow()

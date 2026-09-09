@@ -57,6 +57,10 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
         openWindow.target = self
         menu.addItem(openWindow)
 
+        let companion = NSMenuItem(title: L("Show floating panel"), action: #selector(showCompanion), keyEquivalent: "")
+        companion.target = self
+        menu.addItem(companion)
+
         // Shown only while Accessibility is missing — the one condition that
         // makes dictation look silently broken.
         accessibilityWarningItem.title = L("⚠︎ Accessibility not granted — click to fix")
@@ -241,6 +245,8 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
     }
 
     // MARK: - Actions
+
+    @objc private func showCompanion() { HUD.shared.showCompanion() }
 
     @objc private func toggleDictation() { dictation.toggle() }
     @objc private func toggleMeeting() { meeting.toggle() }

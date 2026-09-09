@@ -130,3 +130,29 @@ choose Soniox for dictation, Soniox is the external processor for that audio.
 
 Vocaret is not sandboxed, because the Core Audio process tap and caret insertion
 are not possible inside the App Sandbox.
+
+## Floating conversation and agent memory
+
+The optional Chat mode sends typed messages (or the voice transcript you review
+and send), recent conversation context and **Vocaret's own memory document** to
+the selected Codex or Claude CLI. It uses your existing CLI sign-in and quota;
+provider/account retention policies apply. This is a cloud-capable feature even
+when your speech recognition is local. Meeting transcripts are not automatically
+sent to an agent. No agent is invoked until you press Send or Propose memory edit.
+
+Vocaret stores the latest 80 chat messages and `MEMORY.md` under its Application
+Support `Companion` directory (directory 0700, files 0600). New conversation clears
+the saved chat. The memory editor can replace or empty the document. Requests use
+up to 48 KB of recent chat; omitted older turns are explicitly marked. Agents
+return memory proposals for review; Save memory applies them and refuses to
+overwrite a document changed since it was opened. Neither agent's global memory
+or configuration is modified. CLI session persistence is disabled; temporary
+request/response files are private and deleted after completion/cancellation.
+
+YouTube playback control uses Automation and browser JavaScript through Apple
+Events, restricted to YouTube video elements. It reads no page text or browsing
+history and sends no browser data to agents. Resume checks the recording's token,
+video source and playback position. Closing or navigating a tab discards its
+marker. Allow JavaScript from Apple Events must be enabled in the chosen browser;
+denied permissions are skipped. Spotify and Music continue to use their native
+playback-state controls. Meeting capture never mutes system audio globally.

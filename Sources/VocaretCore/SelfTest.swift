@@ -616,8 +616,8 @@ public enum SelfTest {
 
     @MainActor
     private static func renderPill(to url: URL) {
-        let view = NSHostingView(rootView: RecorderPillView(model: HUD.shared.model))
-        let size = RecorderHUDLayout.panelSize(transcript: HUD.shared.model.presentedPartialText)
+        let view = NSHostingView(rootView: CompanionView(recorder: HUD.shared.model, companion: .shared, app: .shared))
+        let size = NSSize(width: 460, height: max(200, view.fittingSize.height))
         view.frame = NSRect(origin: .zero, size: size)
         view.wantsLayer = true
         view.layer?.backgroundColor = NSColor(calibratedWhite: 0.12, alpha: 1).cgColor

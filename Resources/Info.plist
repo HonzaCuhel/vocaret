@@ -31,9 +31,9 @@
     <key>NSHighResolutionCapable</key>
     <true/>
     <key>NSMicrophoneUsageDescription</key>
-    <string>Vocaret records your voice to transcribe dictation and your side of meetings — everything stays on this Mac.</string>
+    <string>Vocaret records your voice for dictation and your side of meetings. Speech is processed on this Mac or by the speech provider you select.</string>
     <key>NSAppleEventsUsageDescription</key>
-    <string>Vocaret pauses Spotify or Music while you dictate and resumes it afterwards. It only ever sends play/pause.</string>
+    <string>Vocaret pauses Spotify, Music and YouTube during recording and resumes what it paused. YouTube control uses browser JavaScript through Apple Events.</string>
     <key>NSAudioCaptureUsageDescription</key>
     <string>Vocaret records system audio during meeting transcription so the other participants can be transcribed — everything stays on this Mac.</string>
 </dict>

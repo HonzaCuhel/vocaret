@@ -28,22 +28,29 @@ public final class MediaPauser: @unchecked Sendable {
     private let queue = DispatchQueue(label: "com.jancuhel.vocaret.mediapauser", qos: .userInitiated)
     /// Only touched on `queue`.
     private var pausedByUs: [Player] = []
+    private var browserToken: String?
+    private var pausedBrowsers: [Player] = []
+    private var pauseActive = false
 
     public init() {}
 
     /// Players that are running right now (never launches anything).
-    public func runningPlayers() -> [Player] {
+    private func runningMediaApps() -> [Player] {
         let running = Set(NSWorkspace.shared.runningApplications.compactMap(\.bundleIdentifier))
-        return Self.knownPlayers.filter { running.contains($0.bundleID) }
+        return (Self.knownPlayers + BrowserMediaScripts.browsers).filter { running.contains($0.bundleID) }
+    }
+
+    public func runningPlayers() -> [Player] {
+        runningMediaApps().filter { player in Self.knownPlayers.contains { $0.bundleID == player.bundleID } }
     }
 
     /// Ask for the Automation permission at a calm moment (app launch) instead
     /// of mid-recording, where the system prompt would steal focus.
     public func primePermissions() {
         guard SettingsStore.shared.pauseMediaWhileRecording else { return }
-        let players = runningPlayers()
+        let players = runningMediaApps()
         if !players.isEmpty {
-            queue.async { [self] in for p in players { _ = playerState(p) } }
+            queue.async { [self] in for p in players { _ = probePlayer(p) } }
         }
         // A player launched later gets its prompt at launch time, not at the
         // next recording.
@@ -53,10 +60,10 @@ public final class MediaPauser: @unchecked Sendable {
             ) { [weak self] note in
                 guard let self, SettingsStore.shared.pauseMediaWhileRecording,
                       let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
-                      let player = Self.knownPlayers.first(where: { $0.bundleID == app.bundleIdentifier }) else { return }
+                      let player = (Self.knownPlayers + BrowserMediaScripts.browsers).first(where: { $0.bundleID == app.bundleIdentifier }) else { return }
                 // The app needs a moment before it answers Apple Events.
                 self.queue.asyncAfter(deadline: .now() + 4) {
-                    if self.automationStatus(player) == OSStatus(errAEEventWouldRequireUserConsent) { _ = self.playerState(player) }
+                    if self.automationStatus(player) == OSStatus(errAEEventWouldRequireUserConsent) { _ = self.probePlayer(player) }
                 }
             }
         }
@@ -90,15 +97,21 @@ public final class MediaPauser: @unchecked Sendable {
     /// Pause every running player that is currently playing. Non-blocking.
     public func pauseIfPlaying(completion: (([Player]) -> Void)? = nil) {
         guard SettingsStore.shared.pauseMediaWhileRecording else { completion?([]); return }
-        let players = runningPlayers()
+        Task { @MainActor in CompanionModel.shared.mediaStatus = nil }
+        let players = runningMediaApps()
         guard !players.isEmpty else { completion?([]); return }
         queue.async { [self] in
+            guard !pauseActive else { completion?([]); return }
+            pauseActive = true
+            let token = UUID().uuidString
+            browserToken = token
             var paused: [Player] = []
             var ready: [Player] = []
             for player in players {
                 if automationStatus(player) == OSStatus(errAEEventWouldRequireUserConsent) {
                     Log.info("Automation for \(player.name) not decided yet — not pausing it mid-recording; will ask afterwards")
                     primeAfterRecording.append(player)
+                    Task { @MainActor in CompanionModel.shared.mediaStatus = L("Media pause needs Automation permission.") }
                 } else {
                     ready.append(player)
                 }
@@ -107,6 +120,15 @@ public final class MediaPauser: @unchecked Sendable {
             // together, so a played-then-paused player can never be recorded
             // wrongly, and the round-trip cost is paid once, not twice.
             for player in ready {
+                if BrowserMediaScripts.browsers.contains(where: { $0.bundleID == player.bundleID }) {
+                    let result = run(BrowserMediaScripts.script(browser: player, pausing: true, token: token))?.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if result == "changed" { pausedBrowsers.append(player) }
+                    else if result == "unavailable" || result == nil {
+                        Task { @MainActor in CompanionModel.shared.mediaStatus = L("YouTube: enable Allow JavaScript from Apple Events in your browser.") }
+                        Log.warn("YouTube pause unavailable in \(player.name): enable Automation and Allow JavaScript from Apple Events")
+                    }
+                    continue
+                }
                 switch run(Self.pauseIfPlayingScript(player.name))?.trimmingCharacters(in: .whitespacesAndNewlines) {
                 case "paused":
                     paused.append(player)
@@ -134,7 +156,7 @@ public final class MediaPauser: @unchecked Sendable {
             let pending = primeAfterRecording
             primeAfterRecording.removeAll()
             if !pending.isEmpty {
-                queue.asyncAfter(deadline: .now() + 6) { [self] in for player in pending { _ = playerState(player) } }
+                queue.asyncAfter(deadline: .now() + 6) { [self] in for player in pending { _ = probePlayer(player) } }
             }
         }
     }
@@ -147,10 +169,19 @@ public final class MediaPauser: @unchecked Sendable {
 
     /// Must run on `queue`.
     private func resumeNow() -> [Player] {
+        pauseActive = false
+        if let token = browserToken {
+            let running = Set(runningMediaApps().map(\.bundleID))
+            for browser in pausedBrowsers where running.contains(browser.bundleID) {
+                _ = run(BrowserMediaScripts.script(browser: browser, pausing: false, token: token))
+            }
+        }
+        pausedBrowsers = []
+        browserToken = nil
         let players = pausedByUs
         pausedByUs = []
         guard !players.isEmpty else { return [] }
-        let stillRunning = Set(runningPlayers().map(\.bundleID))
+        let stillRunning = Set(runningMediaApps().map(\.bundleID))
         var resumed: [Player] = []
         for player in players {
             // Do not launch a player the user quit meanwhile, and do not
@@ -195,6 +226,13 @@ public final class MediaPauser: @unchecked Sendable {
             return "playing"
         end tell
         """
+    }
+
+    private func probePlayer(_ player: Player) -> String? {
+        if BrowserMediaScripts.browsers.contains(where: { $0.bundleID == player.bundleID }) {
+            return run("tell application \"\(player.name)\" to count windows")
+        }
+        return playerState(player)
     }
 
     /// "playing" | "paused" | "stopped" | nil (not scriptable / permission denied).

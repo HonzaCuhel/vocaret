@@ -35,6 +35,18 @@
 > **Status: v0.2.0, early.** Used daily on one Mac; expect rough edges and read
 > [the current limitations](#limitations) before installing.
 
+
+## Floating companion
+
+The floating panel brings together **Dictate**, **Chat**, and **Meeting**, with
+translucent cards and a voice-reactive 3D particle orb. Chat keeps recent context
+and can use your signed-in Codex or Claude CLI to answer messages and propose
+edits to Vocaret memory. The brain button opens the memory editor. Meeting uses
+local microphone + system-audio transcription. YouTube playback joins Spotify
+and Music pause/resume (browser Automation and JavaScript permissions required).
+See [setup, behavior and verification](docs/floating-companion.md) and
+[privacy details](PRIVACY.md#floating-conversation-and-agent-memory).
+
 ## What it does
 
 - **Dictation anywhere** — hold `⌃⌥D`, speak, and release to insert text at the

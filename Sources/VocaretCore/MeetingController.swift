@@ -13,6 +13,7 @@ public final class MeetingController {
 
     public private(set) var state: State = .idle {
         didSet {
+            CompanionModel.shared.capturing = state != .idle
             AppModel.shared.meetingState = state
             onStateChange?(state)
         }
@@ -35,7 +36,8 @@ public final class MeetingController {
     public func toggle() {
         switch state {
         case .idle:
-            guard !isStarting else { return }
+            guard !isStarting, !CompanionModel.shared.capturing else { return }
+            CompanionModel.shared.capturing = true
             start()
         case .recording:
             finish()
@@ -98,13 +100,17 @@ public final class MeetingController {
 
     private func start() {
         guard #available(macOS 14.4, *) else {
+            CompanionModel.shared.capturing = false
             HUD.shared.flash("Meeting capture needs macOS 14.4 or newer")
             return
         }
-        guard consentAcknowledged() else { return }
+        guard consentAcknowledged() else { CompanionModel.shared.capturing = false; return }
+        CompanionModel.shared.capturing = true
+        CompanionModel.shared.mode = .meeting
+        CompanionModel.shared.expanded = true
         isStarting = true
         Task { @MainActor in
-            defer { isStarting = false }
+            defer { isStarting = false; if state == .idle { CompanionModel.shared.capturing = false } }
             guard await Permissions.requestMicrophone() else {
                 HUD.shared.flash("Microphone access denied — enable it in System Settings")
                 Permissions.openMicrophoneSettings()

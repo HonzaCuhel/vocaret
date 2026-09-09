@@ -7,6 +7,11 @@ public enum VocaretMain {
     public static func run() {
         let arguments = CommandLine.arguments
 
+        if let index = arguments.firstIndex(of: "--render-companion"), arguments.count > index + 1 {
+            CompanionPreview.run(directory: arguments[index + 1])
+            return
+        }
+
         // Headless runtime self-tests: `Vocaret --selftest <mic|tap|llm|meeting|keys|all>`
         if SelfTest.runIfRequested(arguments: arguments) {
             return

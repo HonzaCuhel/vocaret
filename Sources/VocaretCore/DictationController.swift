@@ -26,9 +26,11 @@ public final class DictationController {
     }
 
     public private(set) var state: State = .idle {
-        didSet { onStateChange?(state) }
+        didSet { CompanionModel.shared.capturing = state != .idle; onStateChange?(state) }
     }
 
+    public var transcriptDestination: (() -> ((String) -> Void)?)?
+    private var recordingDestination: ((String) -> Void)?
     public var onStateChange: ((State) -> Void)?
 
     private let recorder = MicRecorder()
@@ -68,7 +70,9 @@ public final class DictationController {
     public func toggle() {
         switch state {
         case .idle:
-            guard !isStarting else { return }
+            guard !isStarting, !CompanionModel.shared.capturing else { return }
+            CompanionModel.shared.capturing = true
+            if CompanionModel.shared.mode == .meeting { CompanionModel.shared.mode = .dictation }
             pressStarted = Date()
             start()
         case .recording:
@@ -140,10 +144,11 @@ public final class DictationController {
     }
 
     private func start() {
+        recordingDestination = transcriptDestination?()
         isStarting = true
         releasedWhileStarting = false
         Task { @MainActor in
-            defer { isStarting = false }
+            defer { isStarting = false; if state == .idle { CompanionModel.shared.capturing = false } }
             guard await Permissions.requestMicrophone() else {
                 HUD.shared.flash("Microphone access denied — enable it in System Settings")
                 Permissions.openMicrophoneSettings()
@@ -359,6 +364,7 @@ public final class DictationController {
     }
 
     private func finish() {
+        let destination = recordingDestination
         jobGeneration &+= 1
         let thisJobGeneration = jobGeneration
         activeJobGeneration = thisJobGeneration
@@ -519,6 +525,11 @@ public final class DictationController {
                     cleaned: shouldClean
                 ))
 
+                if let destination {
+                    HUD.shared.hide()
+                    destination(text)
+                    return
+                }
                 switch await TextInserter.insert(text, targetPID: targetPID) {
                 case .insertedViaAccessibility, .pastedViaClipboard:
                     HUD.shared.hide()
