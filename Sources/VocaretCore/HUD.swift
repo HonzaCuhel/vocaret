@@ -13,9 +13,12 @@ public final class HUD {
 
     public let model = RecorderModel()
 
+    var isPanelVisible: Bool { panel?.isVisible == true }
+
     private var panel: NSPanel?
     private var hosting: NSHostingView<CompanionView>?
-    private var companionVisible = false
+    private var idleDismissal: DispatchWorkItem?
+    private var pointerInside = false
     private var persistentText: String?
     private var generation = 0
 
@@ -90,23 +93,41 @@ public final class HUD {
         model.startedAt = nil
         model.endInteraction()
         model.phase = .hidden
-        if companionVisible && SettingsStore.shared.showHUD { present() } else { panel?.orderOut(nil) }
+        guard SettingsStore.shared.showHUD else { dismissCompanion(); return }
+        scheduleIdleDismissal()
     }
 
     func showCompanion() {
-        companionVisible = true
         SettingsStore.shared.showHUD = true
         present()
     }
 
     func dismissCompanion() {
-        companionVisible = false
+        idleDismissal?.cancel()
         panel?.orderOut(nil)
     }
 
     func resizeCompanion() {
+        scheduleIdleDismissal()
         layout()
         DispatchQueue.main.async { [weak self] in self?.layout() }
+    }
+
+    func setPointerInside(_ inside: Bool) {
+        pointerInside = inside
+        scheduleIdleDismissal()
+    }
+
+    private func scheduleIdleDismissal() {
+        idleDismissal?.cancel()
+        let companion = CompanionModel.shared
+        guard model.phase == .hidden, companion.canAutoHide, !pointerInside else { return }
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, self.model.phase == .hidden, CompanionModel.shared.canAutoHide, !self.pointerInside else { return }
+            self.panel?.orderOut(nil)
+        }
+        idleDismissal = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 6, execute: work)
     }
 
     private func present() {
@@ -115,6 +136,7 @@ public final class HUD {
         generation += 1
         layout()
         panel?.orderFrontRegardless()
+        scheduleIdleDismissal()
     }
 
     private func build() {

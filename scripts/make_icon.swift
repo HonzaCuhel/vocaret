@@ -2,8 +2,8 @@ import AppKit
 import CoreGraphics
 import Foundation
 
-// Renders the Vocaret app icon: a macOS-style squircle with an indigo→violet
-// gradient and a white microphone glyph, at every size an .iconset needs.
+// Renders the Vocaret icon from vectors: midnight glass, a cyan/violet orbital
+// halo and a white microphone, with a simplified silhouette at small sizes.
 
 let outputDir = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "./AppIcon.iconset"
 try? FileManager.default.createDirectory(atPath: outputDir, withIntermediateDirectories: true)
@@ -68,8 +68,8 @@ func render(size: Int) -> CGImage? {
     context.addPath(squircle(in: iconRect))
     context.clip()
     let colors = [
-        CGColor(srgbRed: 0.35, green: 0.49, blue: 1.00, alpha: 1), // #597DFF
-        CGColor(srgbRed: 0.55, green: 0.24, blue: 0.95, alpha: 1), // #8C3DF2
+        CGColor(srgbRed: 0.08, green: 0.18, blue: 0.28, alpha: 1), // midnight teal
+        CGColor(srgbRed: 0.18, green: 0.08, blue: 0.34, alpha: 1), // deep violet
     ] as CFArray
     if let gradient = CGGradient(colorsSpace: CGColorSpace(name: CGColorSpace.sRGB)!,
                                  colors: colors, locations: [0, 1]) {
@@ -95,6 +95,31 @@ func render(size: Int) -> CGImage? {
             endRadius: iconRect.width * 0.75,
             options: []
         )
+    }
+    context.restoreGState()
+
+    // Orbital edge lighting echoes the voice-reactive particle sphere. Keep the
+    // smallest variants simple so the microphone remains recognisable in Dock.
+    context.saveGState()
+    context.addPath(squircle(in: iconRect.insetBy(dx: 2 * scale, dy: 2 * scale)))
+    context.setStrokeColor(CGColor(srgbRed: 0.6, green: 0.83, blue: 1, alpha: 0.24))
+    context.setLineWidth(max(1, 3 * scale))
+    context.strokePath()
+    if size >= 64 {
+        context.translateBy(x: dimension / 2, y: dimension / 2)
+        context.rotate(by: -.pi / 5)
+        context.scaleBy(x: 1, y: 0.88)
+        for i in 0..<96 {
+            let angle = Double(i) * 2 * Double.pi / 96
+            let radius = 340 * scale
+            let dot = (i % 3 == 0 ? 3.5 : 2.1) * scale
+            let tint = CGFloat(i) / 95
+            context.setFillColor(CGColor(srgbRed: 0.18 + tint * 0.48,
+                                        green: 0.84 - tint * 0.43,
+                                        blue: 1, alpha: 0.6 + 0.3 * sin(angle)))
+            context.fillEllipse(in: CGRect(x: cos(angle) * radius - dot,
+                                            y: sin(angle) * radius - dot, width: dot * 2, height: dot * 2))
+        }
     }
     context.restoreGState()
 

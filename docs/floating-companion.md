@@ -1,19 +1,22 @@
 # Floating companion
 
-Vocaret's panel now offers Dictate, Chat and Meeting, with a translucent native
+Vocaret's panel offers Dictate, Ask assistant and Meeting, with a translucent native
 material card, retained conversation, and a microphone-reactive projected 3D
 particle sphere. It respects Reduce Motion and Reduce Transparency. The menu-bar
 item **Show floating panel** reopens it. The minus button hides it without stopping
 capture; Stop finishes capture and X cancels it. Mode changes are locked during
-capture/processing. Dictate inserts at the caret; Chat dictation fills the message
-composer for review and sending. Meeting uses the existing local dual-track live
+capture/processing. The global dictation shortcut always inserts at the caret.
+Ask assistant opens a draft based on the last dictation; its microphone fills the
+message composer for review and explicit sending. Idle dictation hides after six
+seconds, while hovering, capture, a meeting, an unsent request or memory editing
+keeps the panel visible. Meeting uses the existing local dual-track live
 transcription and saved-meeting library.
 
 ## Agents and memory
 
 Install and sign into `codex` or `claude` in Terminal first. Supported executable
 locations are `~/.local/bin`, `/opt/homebrew/bin`, and `/usr/local/bin`. Select the
-agent in Chat. The integration invokes the CLI directly with file-backed stdin,
+agent in the assistant panel. The integration invokes the CLI directly with file-backed stdin,
 not shell interpolation. It has cancellation, a 180-second timeout, bounded
 output, ephemeral sessions and no configuration/hook installation. Codex uses
 read-only sandboxing and ignores user configuration; Claude has no tools, hooks
@@ -25,7 +28,7 @@ apply it, or Cancel to discard it. This action runs entirely locally and makes
 no agent request. Ordinary dictation only updates the available last text.
 
 The brain icon edits Vocaret's memory document. To ask an agent for an edit, type
-an instruction in Chat, then choose **Propose memory edit**. Review the returned
+an instruction in the assistant panel, then choose **Propose memory edit**. Review the returned
 complete document and click **Save memory**. Existing memory is sent with future
 messages. This is shared Vocaret context for either CLI, not access to private
 Codex or Claude memory databases and not control of an already-running task.
@@ -75,21 +78,18 @@ bounded probe; real YouTube playback remains unverified on this Mac. Spotify was
 not running. JavaScript tests cover pause/resume ownership, repeated resume,
 initially paused video, manual seeking, changed source and non-YouTube hosts.
 
-Final local gates: 172 XCTest cases, 2 expected skips, no failures. Release build,
-strict code-sign verification and the packaged HUD runtime self-test passed.
-The local bundle uses the project's supported ad-hoc signing mode; the installed
-copy was not replaced. Developer-certificate signing did not finish unattended.
-A packaged meeting-stream run reached model preparation but Core ML reported
-no disk space while creating MPSGraph caches; that run was terminated and does
-not establish successful meeting inference. Only the regenerable debug
-ModuleCache was removed to make room for packaging. Real microphone/system
-capture, playback and successful Claude responses still require runtime checks
-with available disk space, granted permissions and an account below its quota.
+The earlier disk-space failure was resolved. Subsequent installed-app checks
+passed microphone transcription, full-length system-audio transcription, live
+meeting capture and streaming local meeting inference. The final live-meeting
+check finished its queued passages 1.381 seconds after stop on this Mac. These
+checks use synthetic speech; they do not establish accuracy across real meetings.
+Accessibility-dependent insertion still requires the system grant on rebuilt
+ad-hoc apps. See the release notes for the checks performed on each bundle.
 
 ## Installer packaging
 
 `./scripts/build_dmg.sh` builds the app and a compressed, verified DMG with an
 Applications shortcut. `--skip-build` packages an already verified app;
-`--version 0.2.0-beta.1` labels a prerelease. A matching SHA-256 file is generated.
+`--version 0.2.0-beta.2` labels a prerelease. A matching SHA-256 file is generated.
 The script preserves existing output files and validates the application signature.
-The v0.2.0-beta.1 artifact is arm64-only, ad-hoc signed and not notarized.
+The v0.2.0-beta.2 artifact is arm64-only, ad-hoc signed and not notarized.

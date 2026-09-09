@@ -57,6 +57,7 @@ struct CompanionView: View {
         .frame(width: 460)
         .preferredColorScheme(.dark)
         .tint(.cyan)
+        .onHover { HUD.shared.setPointerInside($0) }
     }
 
     private var conversationCard: some View {
@@ -208,7 +209,9 @@ struct CompanionView: View {
             }
             HStack(spacing: 4) {
                 modeButton(.dictation, "waveform", "Dictate")
-                modeButton(.chat, "bubble.left", "Chat")
+                Button { companion.askAboutLastDictation(); HUD.shared.resizeCompanion() } label: {
+                    Label(L("Ask assistant"), systemImage: "sparkles").padding(.horizontal, 7).padding(.vertical, 6)
+                }.disabled(companion.busy || companion.capturing)
                 modeButton(.meeting, "person.2", "Meeting")
                 Spacer()
                 Button { companion.openMemory(); HUD.shared.resizeCompanion() } label: { Image(systemName: "brain") }
@@ -222,6 +225,8 @@ struct CompanionView: View {
         .onChange(of: companion.mediaStatus) { _, _ in HUD.shared.resizeCompanion() }
         .onChange(of: companion.error) { _, _ in HUD.shared.resizeCompanion() }
         .onChange(of: companion.input) { _, _ in HUD.shared.resizeCompanion() }
+        .onChange(of: companion.busy) { _, _ in HUD.shared.resizeCompanion() }
+        .onChange(of: companion.capturing) { _, _ in HUD.shared.resizeCompanion() }
         .onChange(of: companion.editingMemory) { _, _ in HUD.shared.resizeCompanion() }
     }
 

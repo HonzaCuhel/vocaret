@@ -133,7 +133,7 @@ are not possible inside the App Sandbox.
 
 ## Floating conversation and agent memory
 
-The optional Chat mode sends typed messages (or the voice transcript you review
+The optional **Ask assistant** action sends typed messages (or the voice transcript you review
 and send), recent conversation context and **Vocaret's own memory document** to
 the selected Codex or Claude CLI. It uses your existing CLI sign-in and quota;
 provider/account retention policies apply. This is a cloud-capable feature even

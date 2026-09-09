@@ -23,8 +23,8 @@
 
 <p align="center">
   <a href="https://honzacuhel.github.io/vocaret/#demo">
-    <img src="docs/assets/vocaret-meetings-poster.jpg" width="760"
-         alt="Vocaret promo: local-first dictation and live meeting transcription with separate speaker labels">
+    <img src="docs/assets/vocaret-companion-poster.jpg" width="760"
+         alt="Vocaret: a floating glass companion, voice-reactive 3D sphere and explicit Remember action">
   </a>
 </p>
 
@@ -32,19 +32,34 @@
   <a href="https://honzacuhel.github.io/vocaret/#demo"><strong>▶ Watch the 36-second product film →</strong></a>
 </p>
 
-> **Status: v0.2.0, early.** Used daily on one Mac; expect rough edges and read
+> **Status: v0.2.0-beta.2.** An early Apple Silicon beta, tested on one Mac. Read
 > [the current limitations](#limitations) before installing.
 
 
 ## Floating companion
 
-The floating panel brings together **Dictate**, **Chat**, and **Meeting**, with
-translucent cards and a voice-reactive 3D particle orb. Chat keeps recent context
-and can use your signed-in Codex or Claude CLI to answer messages and propose
-edits to Vocaret memory. The brain button opens the memory editor. Meeting uses
-local microphone + system-audio transcription. YouTube playback joins Spotify
-and Music pause/resume (browser Automation and JavaScript permissions required).
-See [setup, behavior and verification](docs/floating-companion.md) and
+A translucent native panel with a voice-reactive **3D particle sphere** keeps
+recording controls near your work. It hides after six seconds of idle time;
+hovering, recording, meetings, unsent assistant text and memory editing keep it
+visible. Reopen it with **Show floating panel** in the menu bar.
+
+- **Dictate** inserts at the cursor with `⌃⌥D`.
+- **Remember** opens your last dictation as an editable, local memory draft.
+  Nothing is sent to an agent. Only **Save memory** writes the document.
+- **Ask assistant** continues from your last dictation, with retained conversation
+  context. Review the request and press Send to use your signed-in Codex or Claude
+  CLI. Its microphone adds text to the composer; the global shortcut still dictates
+  into your working app.
+- **Meeting** shows live, local microphone + system-audio transcription.
+
+Codex and Claude share Vocaret's own memory document when explicitly invoked.
+They can **propose** edits; you review and save them. This does not edit their
+private memory databases or attach to an existing agent task. Ordinary dictation
+never invokes these agents or automatically modifies memory.
+
+Spotify, Music and YouTube can pause during recording and resume afterward.
+YouTube needs browser Automation and JavaScript permissions. See
+[setup and verification](docs/floating-companion.md) and
 [privacy details](PRIVACY.md#floating-conversation-and-agent-memory).
 
 ## What it does
@@ -58,7 +73,7 @@ See [setup, behavior and verification](docs/floating-companion.md) and
   `Me` / `Them`, without a virtual audio driver. Local transcription runs during
   the call, with live speaker-labelled passages in the Meetings window.
 - **Useful extras** — optional local Qwen or GPT-5 nano cleanup, searchable history, speaking
-  metrics, meeting summaries, and automatic Spotify/Music pause and resume.
+  metrics, meeting summaries, and automatic Spotify/Music/YouTube pause and resume.
 - **Focused overlay** — see microphone level and up to four recent live lines
   without leaving the app where you are typing.
 
@@ -75,7 +90,13 @@ text for formatting. See [PRIVACY.md](PRIVACY.md) for the exact data flow.
 
 ## Install
 
-Vocaret is distributed as source:
+Download the [Apple Silicon beta DMG](https://github.com/HonzaCuhel/vocaret/releases/download/v0.2.0-beta.2/Vocaret-0.2.0-beta.2-macOS-arm64.dmg)
+from the [release page](https://github.com/HonzaCuhel/vocaret/releases/tag/v0.2.0-beta.2).
+Open it and drag Vocaret into Applications. The beta is **ad-hoc signed and not
+notarized**; macOS may require explicit approval in Privacy & Security. There is
+no automatic updater. Speech models download separately on first use.
+
+To build and install from source:
 
 ```bash
 git clone https://github.com/HonzaCuhel/vocaret.git
@@ -102,7 +123,10 @@ only when a feature needs them:
 | **Microphone** | first dictation | recording your voice |
 | **Accessibility** | first insertion | typing the text at your cursor |
 | **System Audio Recording** | first meeting | hearing other participants |
-| **Automation (Spotify / Music)** | first recording while music plays | pausing and resuming your music |
+| **Automation (Spotify / Music / browser)** | playback control | pausing and resuming supported media |
+
+YouTube also requires **Allow JavaScript from Apple Events** in the supported
+browser: Chrome, Safari, Edge or Brave.
 
 Without Accessibility, transcripts are copied to the clipboard instead of
 being inserted.
@@ -136,8 +160,8 @@ In **Settings → AI cleanup**, enable dictation cleanup and choose:
 - **Local Qwen3 4B** — private and offline; run `scripts/setup_llm.sh` first.
 - **GPT-5 nano** — paste your OpenAI API key for fast cloud formatting. Audio
   is never sent to OpenAI, responses use `store: false`, and failures fall back
-  to the original transcript. Current model pricing is
-  [$0.05 / 1M input and $0.40 / 1M output tokens](https://developers.openai.com/api/docs/models/gpt-5-nano).
+  to the original transcript. See the provider’s
+  [model page](https://developers.openai.com/api/docs/models/gpt-5-nano) for pricing.
 
 ## Meeting privacy
 
@@ -167,7 +191,7 @@ Restart Vocaret after changing defaults.
 
 ## Limitations
 
-- Source-only and not notarized; there is no signed download or auto-update.
+- Beta DMG is ad-hoc signed, not notarized. No auto-update; rebuilt ad-hoc apps can require renewed permissions.
 - Tested on one Apple Silicon Mac, not broad hardware or macOS combinations.
 - Meeting labels are `Me` / `Them`, not full speaker diarization.
 - Auto mode defaults to Czech and English; configure `autoLanguages` for others.
@@ -211,6 +235,7 @@ swift build
 .build/debug/Vocaret --transcribe audio.wav [--language auto|cs|en]
 open -W -a ~/Applications/Vocaret.app --args --selftest all 8 --out /tmp/selftest.log
 .build/release/Vocaret --coach
+.build/release/Vocaret --render-companion /tmp/companion # synthetic glass panel previews
 .build/release/Vocaret --render-window /tmp/ui
 .build/release/Vocaret --render-meetings /tmp/meeting-ui # synthetic light/dark previews
 .build/release/Vocaret --selftest meeting-stream # cached Whisper + synthetic speech; no capture

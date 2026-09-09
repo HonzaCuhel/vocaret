@@ -593,6 +593,9 @@ public enum SelfTest {
     /// renders each to PNG next to the log — proves the animation path runs.
     @MainActor
     static func hudTest() async {
+        let originalShowHUD = SettingsStore.shared.showHUD
+        SettingsStore.shared.showHUD = true
+        defer { SettingsStore.shared.showHUD = originalShowHUD }
         let dir = (outputURL?.deletingLastPathComponent() ?? FileManager.default.temporaryDirectory)
         var phase = 0.0
         HUD.shared.beginRecording(status: "Live · Soniox", hint: "Release to insert · ⌃⌥D · Esc cancels") {
@@ -611,7 +614,33 @@ public enum SelfTest {
         renderPill(to: dir.appendingPathComponent("hud-transcribing.png"))
         HUD.shared.flash("Copied — press ⌘V", seconds: 0.4)
         try? await Task.sleep(nanoseconds: 700_000_000)
-        check(HUD.shared.model.phase == .hidden, "[hud] flash hid the pill afterwards (no stuck overlay)")
+        check(HUD.shared.model.phase == .hidden, "[hud] flash ended the recording status")
+        HUD.shared.setPointerInside(false)
+        try? await Task.sleep(for: .seconds(6.3))
+        check(!HUD.shared.isPanelVisible, "[hud] idle panel actually disappeared")
+        HUD.shared.showCompanion()
+        CompanionModel.shared.editingMemory = true
+        HUD.shared.resizeCompanion()
+        try? await Task.sleep(for: .seconds(6.3))
+        check(HUD.shared.isPanelVisible, "[hud] memory editor stays visible beyond idle timeout")
+        CompanionModel.shared.editingMemory = false
+        HUD.shared.resizeCompanion()
+        // Let AppKit finish resizing and deliver any resulting pointer exit.
+        try? await Task.sleep(for: .milliseconds(400))
+        HUD.shared.setPointerInside(true)
+        try? await Task.sleep(for: .seconds(6.3))
+        check(HUD.shared.isPanelVisible, "[hud] hovering prevents auto-hide")
+        HUD.shared.setPointerInside(false)
+        try? await Task.sleep(for: .seconds(6.3))
+        check(!HUD.shared.isPanelVisible, "[hud] leaving the idle panel restarts auto-hide")
+        let previousShowHUD = SettingsStore.shared.showHUD
+        HUD.shared.showCompanion()
+        CompanionModel.shared.editingMemory = true
+        SettingsStore.shared.showHUD = false
+        HUD.shared.hide()
+        check(!HUD.shared.isPanelVisible, "[hud] disabling HUD closes even an active memory editor")
+        CompanionModel.shared.editingMemory = false
+        SettingsStore.shared.showHUD = previousShowHUD
     }
 
     @MainActor

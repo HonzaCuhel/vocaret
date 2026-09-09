@@ -10,6 +10,40 @@ final class CompanionTests: XCTestCase {
     }
     override func tearDownWithError() throws { try FileManager.default.removeItem(at: directory) }
 
+    @MainActor func testAutoHideKeepsUnfinishedWorkVisible() {
+        let model = CompanionModel(directory: directory)
+        XCTAssertTrue(model.canAutoHide)
+        model.noteDictation("A finished thought")
+        XCTAssertTrue(model.canAutoHide)
+        model.rememberLastDictation()
+        XCTAssertFalse(model.canAutoHide)
+        model.closeMemory()
+        XCTAssertTrue(model.canAutoHide)
+        model.input = "Unsent request"
+        XCTAssertFalse(model.canAutoHide)
+        model.input = ""
+        model.capturing = true
+        XCTAssertFalse(model.canAutoHide)
+        model.capturing = false
+        model.mode = .meeting
+        XCTAssertFalse(model.canAutoHide)
+    }
+
+    @MainActor func testAssistantDraftIsExplicitAndPreservesUnsentText() throws {
+        let model = CompanionModel(directory: directory)
+        model.noteDictation("Nápad na nový projekt")
+        model.askAboutLastDictation()
+        XCTAssertEqual(model.input, "Nápad na nový projekt")
+        XCTAssertEqual(model.mode, .chat)
+        XCTAssertTrue(model.messages.isEmpty)
+        XCTAssertFalse(model.busy)
+        XCTAssertEqual(try model.store.memory(), "")
+        model.input = "Rozepsaná otázka"
+        model.askAboutLastDictation()
+        XCTAssertEqual(model.input, "Rozepsaná otázka")
+        XCTAssertFalse(model.canAutoHide)
+    }
+
     func testMemoryRoundTripAndConcurrentEditProtection() throws {
         let store = CompanionStore(directory: directory)
         try store.saveMemory("# Paměť\nPiš česky. 日本語", replacing: "")

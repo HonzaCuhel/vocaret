@@ -5,6 +5,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusController: StatusItemController?
     private let dictation = DictationController()
     private let meeting = MeetingController()
+    private var recordingForAssistant = false
 
     public func applicationDidFinishLaunching(_ notification: Notification) {
         Appearance.apply(SettingsStore.shared.appearance)
@@ -12,17 +13,20 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         statusController = StatusItemController(dictation: dictation, meeting: meeting)
         AppModel.shared.toggleMeeting = { [weak self] in self?.meeting.toggle() }
         CompanionModel.shared.noteDictation(TranscriptHistory.shared.last?.text ?? "")
-        dictation.transcriptDestination = {
-            guard CompanionModel.shared.mode == .chat else { return nil }
+        dictation.transcriptDestination = { [weak self] in
+            guard self?.recordingForAssistant == true else { return nil }
             return { CompanionModel.shared.acceptDictation($0) }
         }
         CompanionModel.shared.toggleRecording = { [weak self] in
             guard let self else { return }
             if CompanionModel.shared.mode == .meeting { self.meeting.toggle() }
-            else { self.dictation.toggle() }
+            else {
+                self.recordingForAssistant = CompanionModel.shared.mode == .chat
+                self.dictation.toggle()
+                self.recordingForAssistant = false
+            }
         }
         CompanionModel.shared.cancelRecording = { [weak self] in self?.dictation.cancel(); self?.meeting.cancel() }
-        if SettingsStore.shared.showHUD { HUD.shared.showCompanion() }
         registerHotkeys()
         LLMCleaner.shared.reapStaleServer()
         MediaPauser.shared.primePermissions()

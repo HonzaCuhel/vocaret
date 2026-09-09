@@ -82,6 +82,19 @@ final class CompanionModel: ObservableObject {
         do { messages = try store.history() } catch { self.error = error.localizedDescription }
     }
 
+    var canAutoHide: Bool {
+        mode == .dictation && !expanded && !editingMemory && !busy && !capturing && input.isEmpty && error == nil
+    }
+
+    /// Open an editable assistant request; nothing is sent until Send is pressed.
+    func askAboutLastDictation() {
+        guard !busy, !capturing else { return }
+        if input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { input = lastDictation }
+        mode = .chat
+        expanded = true
+        editingMemory = false
+    }
+
     /// Retain text locally; remembering is always an explicit user action.
     func noteDictation(_ text: String) {
         lastDictation = text.trimmingCharacters(in: .whitespacesAndNewlines)
