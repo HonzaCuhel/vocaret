@@ -74,14 +74,15 @@ Reference commit: `5bbc049b4a7cbff90f5fee24a63b8cd7e8989bf8`.
 Live check on 2026-09-09: Codex conversation recall and memory proposal passed.
 Claude returned a session quota limit, so its successful cloud reply is not yet
 verified. Chrome Apple Events did not complete the permission request in the
-bounded probe; real YouTube playback remains unverified on this Mac. Spotify was
-not running. JavaScript tests cover pause/resume ownership, repeated resume,
+bounded probe; real YouTube playback remains unverified on this Mac. A subsequent
+Spotify runtime test passed pause, resume, repeated resume and rapid pause/resume.
+JavaScript tests cover pause/resume ownership, repeated resume,
 initially paused video, manual seeking, changed source and non-YouTube hosts.
 
 The earlier disk-space failure was resolved. Subsequent installed-app checks
 passed microphone transcription, full-length system-audio transcription, live
-meeting capture and streaming local meeting inference. The final live-meeting
-check finished its queued passages 1.381 seconds after stop on this Mac. These
+meeting capture and streaming local meeting inference. The beta.2 bundle also passed live microphone/system capture with no dropped audio
+or recovery; its queued passages finished 0.901 seconds after stop on this Mac. These
 checks use synthetic speech; they do not establish accuracy across real meetings.
 Accessibility-dependent insertion still requires the system grant on rebuilt
 ad-hoc apps. See the release notes for the checks performed on each bundle.
