@@ -46,7 +46,9 @@ html {
 }
 
 body {
-  margin: 0;
+  position: relative;
+  max-width: 1440px;
+  margin: 0 auto;
   background: var(--ink);
   color: var(--paper);
   overflow-x: hidden;
@@ -163,8 +165,8 @@ a {
   z-index: -1;
   right: -16%;
   bottom: -16%;
-  width: 58vw;
-  height: 58vw;
+  width: min(58vw, 835px);
+  height: min(58vw, 835px);
   border-radius: 50%;
   background: rgba(115, 68, 243, 0.06);
   content: "";
