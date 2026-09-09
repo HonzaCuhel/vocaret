@@ -499,8 +499,14 @@ public enum SelfTest {
         pasteboard.clearContents()
         pasteboard.setString("ORIGINAL CLIPBOARD", forType: .string)
 
+        let previousShowHUD = SettingsStore.shared.showHUD
+        SettingsStore.shared.showHUD = true
+        defer { SettingsStore.shared.showHUD = previousShowHUD }
+        HUD.shared.beginTranscribing(status: "Cleaning…", hint: "Cancel")
         let payload = "Ahoj světe — pasted by Vocaret"
         let outcome = await TextInserter.insert(payload)
+        HUD.shared.hide(immediately: true)
+        check(!HUD.shared.isPanelVisible, "[keys] floater closed immediately after insertion")
         emit("[keys] insert outcome: \(outcome)")
         try? await Task.sleep(nanoseconds: 2_000_000_000)
         emit("[keys] textview now contains: \"\(textView.string)\"")
@@ -518,6 +524,17 @@ public enum SelfTest {
         emit("[keys] caret-insert result: \"\(textView.string)\"")
         check(textView.string.contains("Před: vloženo"), "[keys] text inserted at the caret, existing content preserved")
 
+        HUD.shared.beginTranscribing(status: "Finalizing…", hint: "Cancel")
+        let beforeFallback = textView.string
+        let fallback = await TextInserter.insert("Schránka only", targetPID: -1)
+        HUD.shared.hide(immediately: true)
+        check(!HUD.shared.isPanelVisible, "[keys] clipboard-only completion closes immediately")
+        if case .targetChanged = fallback {
+            check(pasteboard.string(forType: .string) == "Schránka only", "[keys] switched-target transcript remains on clipboard")
+            check(textView.string == beforeFallback, "[keys] switched-target fallback does not paste")
+        } else {
+            fail("[keys] expected switched-target clipboard fallback")
+        }
         window.orderOut(nil)
     }
 
@@ -612,6 +629,13 @@ public enum SelfTest {
         try? await Task.sleep(nanoseconds: 600_000_000)
         check(HUD.shared.model.phase == .transcribing, "[hud] pill entered transcribing phase")
         renderPill(to: dir.appendingPathComponent("hud-transcribing.png"))
+        HUD.shared.setPointerInside(true)
+        HUD.shared.hide(immediately: true)
+        check(!HUD.shared.isPanelVisible, "[hud] completed dictation closes immediately even while hovered")
+        check(HUD.shared.model.partialText.isEmpty, "[hud] completion clears transcript")
+        HUD.shared.beginRecording(status: "Next dictation", hint: "Stop", level: { 0 })
+        check(HUD.shared.isPanelVisible, "[hud] next dictation reopens floater")
+        HUD.shared.setPointerInside(false)
         HUD.shared.flash("Copied — press ⌘V", seconds: 0.4)
         try? await Task.sleep(nanoseconds: 700_000_000)
         check(HUD.shared.model.phase == .hidden, "[hud] flash ended the recording status")

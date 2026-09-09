@@ -86,14 +86,15 @@ public final class HUD {
         }
     }
 
-    public func hide() {
+    /// Completed dictation bypasses the companion idle timeout and hover state.
+    public func hide(immediately: Bool = false) {
         persistentText = nil
         generation += 1
         model.levelProvider = nil
         model.startedAt = nil
         model.endInteraction()
         model.phase = .hidden
-        guard SettingsStore.shared.showHUD else { dismissCompanion(); return }
+        guard !immediately, SettingsStore.shared.showHUD else { dismissCompanion(); return }
         scheduleIdleDismissal()
     }
 

@@ -3,6 +3,33 @@ import XCTest
 
 @MainActor
 final class RecorderHUDTests: XCTestCase {
+    func testImmediateHideClosesPanelEvenWhileHoveredAndClearsRecording() {
+        let hud = HUD.shared
+        let previousShowHUD = SettingsStore.shared.showHUD
+        SettingsStore.shared.showHUD = true
+        defer {
+            hud.setPointerInside(false)
+            SettingsStore.shared.showHUD = previousShowHUD
+        }
+        hud.beginRecording(status: "Recording", hint: "Stop", level: { 0.5 })
+        hud.updatePartial("Hotový text. Finished text.")
+        hud.beginTranscribing(status: "Cleaning", hint: "Cancel")
+        hud.setPointerInside(true)
+        XCTAssertTrue(hud.isPanelVisible)
+
+        hud.hide(immediately: true)
+
+        XCTAssertFalse(hud.isPanelVisible)
+        XCTAssertEqual(hud.model.phase, .hidden)
+        XCTAssertEqual(hud.model.partialText, "")
+        XCTAssertNil(hud.model.levelProvider)
+        XCTAssertNil(hud.model.startedAt)
+        hud.beginRecording(status: "Next recording", hint: "Stop", level: { 0 })
+        XCTAssertTrue(hud.isPanelVisible)
+        XCTAssertEqual(hud.model.phase, .recording)
+        hud.hide(immediately: true)
+    }
+
     func testBeginRecordingStartsFreshWithSeparateStatusAndHint() {
         let model = RecorderModel()
         model.partialText = "stale words"
