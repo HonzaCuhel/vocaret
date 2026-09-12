@@ -35,6 +35,11 @@ final class VocabularyTests: XCTestCase {
         XCTAssertEqual(TranscriptCorrector.apply(text, vocabulary: v), text)
     }
 
+    func testUnrestrictedDetectionPreservesGermanWordsNearVocabularyTerms() {
+        let v = vocabulary(terms: ["Dante"])
+        XCTAssertEqual(TranscriptCorrector.apply("Danke für deine Hilfe.", vocabulary: v), "Danke für deine Hilfe.")
+    }
+
     func testShortWordsAreNotFuzzyMatched() {
         // "kde" must not become "Codex" — fuzzy matching on short words is unsafe.
         let v = vocabulary(terms: ["Codex"])

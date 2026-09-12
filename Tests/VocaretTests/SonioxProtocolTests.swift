@@ -20,6 +20,7 @@ final class SonioxProtocolTests: XCTestCase {
         XCTAssertEqual(object["sample_rate"] as? Int, 16_000)
         XCTAssertEqual(object["num_channels"] as? Int, 1)
         XCTAssertEqual(object["language_hints"] as? [String], ["cs", "en"])
+        XCTAssertEqual(object["language_hints_strict"] as? Bool, true)
         XCTAssertEqual(object["enable_language_identification"] as? Bool, true)
         XCTAssertEqual(
             (object["context"] as? [String: Any])?["terms"] as? [String],
@@ -27,6 +28,19 @@ final class SonioxProtocolTests: XCTestCase {
         )
         XCTAssertEqual(configuration.region.webSocketURL.absoluteString,
                        "wss://stt-rt.eu.soniox.com/transcribe-websocket")
+    }
+
+    func testUnrestrictedLanguageDetectionDoesNotEnableStrictHints() throws {
+        let configuration = SonioxConfiguration(apiKey: "test", region: .eu, languageHints: [], terms: [])
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: configuration.data()) as? [String: Any])
+        XCTAssertEqual(object["language_hints_strict"] as? Bool, false)
+    }
+
+    func testForcedLanguageUsesStrictSingleLanguageHint() throws {
+        let configuration = SonioxConfiguration(apiKey: "test", region: .eu, languageHints: ["cs"], terms: [])
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: configuration.data()) as? [String: Any])
+        XCTAssertEqual(object["language_hints"] as? [String], ["cs"])
+        XCTAssertEqual(object["language_hints_strict"] as? Bool, true)
     }
 
     func testAccumulatorReplacesTentativeSuffixAndStopsAtFin() throws {

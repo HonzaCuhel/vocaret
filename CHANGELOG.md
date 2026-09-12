@@ -3,7 +3,36 @@
 Versioning: [SemVer](https://semver.org/). While at 0.x, minor versions may
 change behaviour and defaults.
 
-## [Unreleased] — 0.3.0
+## [0.2.2] — 2026-09-12
+
+### Fixed
+- Holding the dictation shortcut no longer treats repeated key events as a
+  second press. Release handling also preserves tap-to-toggle through slow startup.
+- Live audio sends and finalization have bounded waits. If the cloud connection
+  fails, recording continues locally with a visible status for recovery on release.
+- Long dictations display the latest rendered lines while retaining the full text.
+- AI cleanup handles fillers, repetitions, false starts and explicit changes of
+  mind in multiple languages, including corrected amounts, names and dates.
+- Copy Last, history, the final preview and insertion share the same completed
+  text. Failed formatting is shown explicitly and is not marked as AI formatted.
+
+### Changed
+- Automatic language detection is unrestricted by default, including German;
+  explicitly saved restrictions are preserved. The language picker exposes all
+  12 existing choices. Short Whisper dictations detect their own language.
+- GPT-5 nano uses low reasoning effort, a quoted dictation payload, and a
+  length-dependent 12–45 second request timeout. The model and providers remain
+  unchanged; no new permissions, model downloads or retention changes are added.
+- Cleanup validation accepts complete equivalent numeric spellings and genuine
+  repair/repetition while rejecting invented numbers and unrelated summaries.
+
+## [0.2.1] — 2026-09-09
+
+### Fixed
+- The dictation floater closes immediately after delivery, including clipboard
+  fallback, even while the pointer is hovering over it.
+
+## Earlier 0.2.x development notes
 
 ### Added
 - Optional Soniox Live engine with replaceable realtime text, EU/US project

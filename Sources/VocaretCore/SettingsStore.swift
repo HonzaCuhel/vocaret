@@ -52,18 +52,17 @@ public final class SettingsStore: @unchecked Sendable {
 
     // MARK: - Transcription
 
-    /// "auto" (per-utterance detection), "cs", or "en".
+    /// "auto" (per-utterance detection) or an explicit language code.
     public var language: String {
         get { defaults.string(forKey: Key.language) ?? "auto" }
         set { defaults.set(newValue, forKey: Key.language) }
     }
 
-    /// When `language == "auto"`, detection is restricted to these codes
-    /// (empty = any language Whisper knows). Default cs+en: it prevents
-    /// Whisper from mistaking Czech for Slovak/Polish and drives per-utterance
-    /// language choice in bilingual meetings.
+    /// When `language == "auto"`, an explicit list restricts detection to
+    /// these codes. Empty (the default) allows every language the engine
+    /// supports, including German. Existing user-selected lists are preserved.
     public var autoLanguages: [String] {
-        get { defaults.stringArray(forKey: Key.autoLanguages) ?? ["cs", "en"] }
+        get { defaults.stringArray(forKey: Key.autoLanguages) ?? [] }
         set { defaults.set(newValue, forKey: Key.autoLanguages) }
     }
 

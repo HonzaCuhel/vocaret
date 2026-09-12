@@ -623,12 +623,20 @@ public enum SelfTest {
         check(HUD.shared.model.phase == .recording, "[hud] pill entered recording phase")
         HUD.shared.updatePartial("Tohle je živý částečný přepis ze Sonioxu")
         check(!HUD.shared.model.partialText.isEmpty, "[hud] live partial transcript is visible")
-        renderPill(to: dir.appendingPathComponent("hud-recording.png"))
+        await renderPill(to: dir.appendingPathComponent("hud-recording.png"))
+        let longTranscript = String(repeating: "Pokračuji v dlouhém diktování bez teček and keep speaking English ", count: 140)
+        HUD.shared.updatePartial(longTranscript + "PRVNÍ ZKUŠEBNÍ KONEC")
+        await renderPill(
+            to: dir.appendingPathComponent("hud-long-tail.png"),
+            expectedTail: "TADY JE POSLEDNÍ ČESKÁ VĚTA",
+            followingTranscript: longTranscript + "TADY JE POSLEDNÍ ČESKÁ VĚTA"
+        )
+        check(HUD.shared.model.partialText == longTranscript + "TADY JE POSLEDNÍ ČESKÁ VĚTA", "[hud] display preserves the complete dictation")
         HUD.shared.beginTranscribing(status: "Finalizing…", hint: "Esc cancels")
         check(!HUD.shared.model.partialText.isEmpty, "[hud] finalization preserves the live transcript")
         try? await Task.sleep(nanoseconds: 600_000_000)
         check(HUD.shared.model.phase == .transcribing, "[hud] pill entered transcribing phase")
-        renderPill(to: dir.appendingPathComponent("hud-transcribing.png"))
+        await renderPill(to: dir.appendingPathComponent("hud-transcribing.png"))
         HUD.shared.setPointerInside(true)
         HUD.shared.hide(immediately: true)
         check(!HUD.shared.isPanelVisible, "[hud] completed dictation closes immediately even while hovered")
@@ -668,7 +676,7 @@ public enum SelfTest {
     }
 
     @MainActor
-    private static func renderPill(to url: URL) {
+    private static func renderPill(to url: URL, expectedTail: String? = nil, followingTranscript: String? = nil) async {
         let view = NSHostingView(rootView: CompanionView(recorder: HUD.shared.model, companion: .shared, app: .shared))
         let size = NSSize(width: 460, height: max(200, view.fittingSize.height))
         view.frame = NSRect(origin: .zero, size: size)
@@ -678,6 +686,32 @@ public enum SelfTest {
         window.contentView = view
         window.orderBack(nil)
         view.layoutSubtreeIfNeeded()
+        if let followingTranscript {
+            let previousHeight = view.fittingSize.height
+            HUD.shared.updatePartial(followingTranscript)
+            try? await Task.sleep(for: .milliseconds(80))
+            view.layoutSubtreeIfNeeded()
+            check(abs(view.fittingSize.height - previousHeight) < 1, "[hud] long partial updates keep the panel height stable")
+        }
+        if let expectedTail {
+            func textViews(in parent: NSView) -> [NSTextView] {
+                (parent as? NSTextView).map { [$0] } ?? parent.subviews.flatMap { textViews(in: $0) }
+            }
+            if let textView = textViews(in: view).first(where: { $0.string.hasSuffix(expectedTail) }),
+               let manager = textView.layoutManager, let container = textView.textContainer {
+                manager.ensureLayout(for: container)
+                let characters = (textView.string as NSString).range(of: expectedTail, options: .backwards)
+                let glyphs = manager.glyphRange(forCharacterRange: characters, actualCharacterRange: nil)
+                let rect = manager.boundingRect(forGlyphRange: glyphs, in: container)
+                    .offsetBy(dx: textView.textContainerOrigin.x, dy: textView.textContainerOrigin.y)
+                check(textView.visibleRect.contains(rect), "[hud] latest Czech marker is fully inside the rendered transcript")
+                var lines = 0
+                manager.enumerateLineFragments(forGlyphRange: manager.glyphRange(for: container)) { _, _, _, _, _ in lines += 1 }
+                check(lines <= 3, "[hud] actual transcript renderer fits the newest text into three lines")
+            } else {
+                fail("[hud] rendered transcript does not contain the latest Czech marker")
+            }
+        }
         if let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) {
             view.cacheDisplay(in: view.bounds, to: rep)
             try? rep.representation(using: .png, properties: [:])?.write(to: url)

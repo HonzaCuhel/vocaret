@@ -1,26 +1,110 @@
 import SwiftUI
+import AppKit
 
 enum RecorderTranscriptPresentation {
-    static func visibleText(_ transcript: String, sentenceLimit: Int = 4) -> String {
-        let trimmed = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return "" }
+    static let companionWidth: CGFloat = 392
+    static let companionFont = NSFont.systemFont(ofSize: 14)
 
-        var sentences: [String] = []
-        trimmed.enumerateSubstrings(
-            in: trimmed.startIndex..<trimmed.endIndex,
-            options: [.bySentences, .substringNotRequired]
-        ) { _, range, _, _ in
-            let sentence = trimmed[range].trimmingCharacters(in: .whitespacesAndNewlines)
-            if !sentence.isEmpty { sentences.append(sentence) }
+    struct Presentation {
+        let text: String
+        let height: CGFloat
+    }
+
+    static func visibleText(_ transcript: String) -> String {
+        presentation(transcript).text
+    }
+
+    /// Measure the newest lines with the same TextKit settings used to render
+    /// them. Sentence counts cannot bound a long, unpunctuated live partial.
+    static func presentation(
+        _ transcript: String,
+        width: CGFloat = companionWidth,
+        font: NSFont = companionFont,
+        lineLimit: Int = 3
+    ) -> Presentation {
+        let trimmed = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return Presentation(text: "", height: 0) }
+
+        // Keep layout work bounded as the full recording grows. This is far
+        // more than the 3–4 lines either recorder view can display; String's
+        // suffix preserves composed characters, including Czech and emoji.
+        var visible = String(trimmed.suffix(2_048))
+        let storage = NSTextStorage(string: visible, attributes: [.font: font])
+        let manager = NSLayoutManager()
+        let container = NSTextContainer(size: CGSize(width: max(1, width), height: CGFloat.greatestFiniteMagnitude))
+        container.lineFragmentPadding = 0
+        storage.addLayoutManager(manager)
+        manager.addTextContainer(container)
+        manager.ensureLayout(for: container)
+
+        var lineRanges: [NSRange] = []
+        manager.enumerateLineFragments(forGlyphRange: manager.glyphRange(for: container)) { _, _, _, range, _ in
+            lineRanges.append(range)
         }
-        guard !sentences.isEmpty else { return trimmed }
-        return sentences.suffix(max(1, sentenceLimit)).joined(separator: " ")
+        if lineRanges.count > max(1, lineLimit) {
+            let firstVisibleLine = lineRanges[lineRanges.count - max(1, lineLimit)]
+            let characters = manager.characterRange(forGlyphRange: firstVisibleLine, actualGlyphRange: nil)
+            visible = (visible as NSString).substring(from: characters.location)
+            storage.setAttributedString(NSAttributedString(string: visible, attributes: [.font: font]))
+            manager.ensureLayout(for: container)
+        }
+        return Presentation(text: visible, height: ceil(manager.usedRect(for: container).maxY))
     }
 
     static func shouldCenter(_ transcript: String) -> Bool {
         let trimmed = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
         let words = trimmed.split(whereSeparator: { $0.isWhitespace }).count
         return !trimmed.isEmpty && words <= 3 && trimmed.count <= 32
+    }
+}
+
+/// The measured suffix is rendered by TextKit too, so SwiftUI's multiline
+/// truncation cannot hide its newest words or substitute a tail ellipsis.
+struct RecorderTranscriptView: View {
+    let transcript: String
+    var width: CGFloat = RecorderTranscriptPresentation.companionWidth
+    var font: NSFont = RecorderTranscriptPresentation.companionFont
+    var lineLimit: Int = 3
+    var alignment: NSTextAlignment = .left
+
+    var body: some View {
+        let presentation = RecorderTranscriptPresentation.presentation(transcript, width: width, font: font, lineLimit: lineLimit)
+        RecorderTranscriptTextView(text: presentation.text, font: font, alignment: alignment)
+            .frame(width: width, height: presentation.height)
+            .accessibilityLabel(L("Live transcript"))
+    }
+}
+
+private struct RecorderTranscriptTextView: NSViewRepresentable {
+    let text: String
+    let font: NSFont
+    let alignment: NSTextAlignment
+
+    func makeNSView(context: Context) -> NSTextView {
+        let storage = NSTextStorage()
+        let manager = NSLayoutManager()
+        let container = NSTextContainer()
+        storage.addLayoutManager(manager)
+        manager.addTextContainer(container)
+        let view = NSTextView(frame: .zero, textContainer: container)
+        view.isEditable = false
+        view.isSelectable = true
+        view.drawsBackground = false
+        view.isHorizontallyResizable = false
+        view.isVerticallyResizable = false
+        view.textContainerInset = .zero
+        container.lineFragmentPadding = 0
+        container.widthTracksTextView = true
+        container.heightTracksTextView = false
+        return view
+    }
+
+    func updateNSView(_ view: NSTextView, context: Context) {
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = alignment
+        view.textStorage?.setAttributedString(NSAttributedString(string: text, attributes: [
+            .font: font, .foregroundColor: NSColor.labelColor, .paragraphStyle: paragraph,
+        ]))
     }
 }
 
@@ -35,6 +119,7 @@ public final class RecorderModel: ObservableObject {
     @Published public var hintText: String = ""
     @Published public var partialText: String = ""
     @Published public var startedAt: Date?
+    private var initialRecordingStatus: String?
     /// Read on every frame; nil when nothing is recording.
     public var levelProvider: (() -> Float)?
 
@@ -51,7 +136,7 @@ public final class RecorderModel: ObservableObject {
     /// engine name (for example, "Live · Soniox" or "Local transcription")
     /// adds noise without helping the user; phase changes still show status.
     var presentedStatusText: String {
-        phase == .recording ? "" : statusText
+        phase == .recording && statusText == initialRecordingStatus ? "" : statusText
     }
 
     var presentedPartialText: String {
@@ -69,6 +154,7 @@ public final class RecorderModel: ObservableObject {
     func beginRecording(status: String, hint: String) {
         beginRecording()
         statusText = status
+        initialRecordingStatus = status
         hintText = hint
         phase = .recording
     }
@@ -83,6 +169,7 @@ public final class RecorderModel: ObservableObject {
         statusText = ""
         hintText = ""
         partialText = ""
+        initialRecordingStatus = nil
     }
 }
 
@@ -126,18 +213,14 @@ public struct RecorderPillView: View {
                 }
             }
 
-            if !model.presentedPartialText.isEmpty {
-                Text(model.presentedPartialText)
-                    .font(.system(size: 17, weight: .medium))
-                    .foregroundStyle(.primary)
-                    .lineLimit(4)
-                    .truncationMode(.head)
-                    .multilineTextAlignment(model.centersPresentedPartialText ? .center : .leading)
-                    .frame(
-                        maxWidth: .infinity,
-                        alignment: model.centersPresentedPartialText ? .center : .leading
-                    )
-                    .accessibilityLabel(L("Live transcript"))
+            if !model.partialText.isEmpty {
+                RecorderTranscriptView(
+                    transcript: model.partialText,
+                    width: 496,
+                    font: .systemFont(ofSize: 17, weight: .medium),
+                    lineLimit: 4,
+                    alignment: model.centersPresentedPartialText ? .center : .left
+                )
             }
         }
         .padding(.horizontal, 16)

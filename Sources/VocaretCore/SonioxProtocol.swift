@@ -37,6 +37,7 @@ struct SonioxConfiguration: Sendable {
             sampleRate: 16_000,
             numChannels: 1,
             languageHints: languageHints,
+            languageHintsStrict: !languageHints.isEmpty,
             enableLanguageIdentification: true,
             context: Context(terms: terms)
         ))
@@ -49,6 +50,7 @@ struct SonioxConfiguration: Sendable {
         let sampleRate: Int
         let numChannels: Int
         let languageHints: [String]
+        let languageHintsStrict: Bool
         let enableLanguageIdentification: Bool
         let context: Context
 
@@ -59,6 +61,7 @@ struct SonioxConfiguration: Sendable {
             case sampleRate = "sample_rate"
             case numChannels = "num_channels"
             case languageHints = "language_hints"
+            case languageHintsStrict = "language_hints_strict"
             case enableLanguageIdentification = "enable_language_identification"
             case context
         }

@@ -16,6 +16,31 @@ private struct LiveAudioFeedError: Error, LocalizedError, Sendable {
     var errorDescription: String? { message }
 }
 
+/// Freeze the hold duration at the first release so startup latency and a
+/// duplicate release cannot turn a quick toggle tap into push-to-talk.
+struct DictationGestureState {
+    private var pressStarted: Date?
+    private var releasedDuration: TimeInterval?
+
+    var isHeld: Bool { pressStarted != nil }
+    var wasReleased: Bool { releasedDuration != nil }
+
+    mutating func begin(at time: Date) {
+        pressStarted = time
+        releasedDuration = nil
+    }
+
+    mutating func release(at time: Date) {
+        guard let pressStarted else { return }
+        releasedDuration = time.timeIntervalSince(pressStarted)
+        self.pressStarted = nil
+    }
+
+    func heldDuration(at time: Date) -> TimeInterval {
+        releasedDuration ?? pressStarted.map { time.timeIntervalSince($0) } ?? 0
+    }
+}
+
 /// Hotkey → record → transcribe → (optionally clean) → paste at caret.
 @MainActor
 public final class DictationController {
@@ -37,7 +62,6 @@ public final class DictationController {
     /// Guards the async gap in start() (permission prompt) against a second
     /// hotkey press starting a second recording.
     private var isStarting = false
-    private var releasedWhileStarting = false
     /// The transcribe/clean/paste job, kept so Esc can abort a slow cleanup.
     private var job: Task<Void, Never>?
     private var jobGeneration = 0
@@ -64,7 +88,7 @@ public final class DictationController {
     /// Shorter than this and the press counts as a tap (toggle mode) rather
     /// than a hold, so a quick tap-speak-tap still works.
     private static let holdThreshold: TimeInterval = 0.35
-    private var pressStarted: Date?
+    private var gesture = DictationGestureState()
 
     /// Hotkey went down.
     public func toggle() {
@@ -73,10 +97,10 @@ public final class DictationController {
             guard !isStarting, !CompanionModel.shared.capturing else { return }
             CompanionModel.shared.capturing = true
             if CompanionModel.shared.mode == .meeting { CompanionModel.shared.mode = .dictation }
-            pressStarted = Date()
+            gesture.begin(at: Date())
             start()
         case .recording:
-            pressStarted = nil
+            gesture = DictationGestureState()
             finish()
         case .transcribing:
             break // ignore presses while a transcription is in flight; Esc cancels
@@ -87,16 +111,15 @@ public final class DictationController {
     /// and inserts immediately; a quick tap leaves it recording until the next
     /// press.
     public func hotkeyReleased() {
-        guard SettingsStore.shared.pushToTalk else { return }
+        guard SettingsStore.shared.pushToTalk, gesture.isHeld else { return }
+        gesture.release(at: Date())
         // Released before the mic finished starting (permission check, engine
         // start): remember it so start() can honour it instead of recording on.
         if isStarting {
-            releasedWhileStarting = true
             return
         }
-        guard state == .recording, let pressStarted else { return }
-        guard Date().timeIntervalSince(pressStarted) >= Self.holdThreshold else { return }
-        self.pressStarted = nil
+        guard state == .recording, gesture.heldDuration(at: Date()) >= Self.holdThreshold else { return }
+        gesture = DictationGestureState()
         finish()
     }
 
@@ -146,7 +169,6 @@ public final class DictationController {
     private func start() {
         recordingDestination = transcriptDestination?()
         isStarting = true
-        releasedWhileStarting = false
         Task { @MainActor in
             defer { isStarting = false; if state == .idle { CompanionModel.shared.capturing = false } }
             guard await Permissions.requestMicrophone() else {
@@ -186,8 +208,8 @@ public final class DictationController {
                 }
             }
             let hotkey = SettingsStore.shared.dictationHotkeyLabel
-            let heldDuration = pressStarted.map { Date().timeIntervalSince($0) } ?? 0
-            let holding = SettingsStore.shared.pushToTalk && !releasedWhileStarting
+            let heldDuration = gesture.heldDuration(at: Date())
+            let holding = SettingsStore.shared.pushToTalk && gesture.isHeld
             HUD.shared.beginRecording(
                 status: recordingEngine == "soniox" ? L("Live · Soniox") : L("Local transcription"),
                 hint: holding
@@ -198,9 +220,8 @@ public final class DictationController {
             registerCancelHotkey()
 
             // The key was already let go while we were starting up.
-            if releasedWhileStarting, SettingsStore.shared.pushToTalk, heldDuration >= Self.holdThreshold {
-                releasedWhileStarting = false
-                pressStarted = nil
+            if gesture.wasReleased, SettingsStore.shared.pushToTalk, heldDuration >= Self.holdThreshold {
+                gesture = DictationGestureState()
                 finish()
             }
         }
@@ -237,7 +258,7 @@ public final class DictationController {
         liveSession = session
         liveAudioBuffer = buffer
         recorder.onSamples = { samples in buffer.yield(samples) }
-        liveAudioTask = Task.detached(priority: .userInitiated) {
+        liveAudioTask = Task.detached(priority: .userInitiated) { [weak self] in
             do {
                 for await samples in buffer.stream {
                     try Task.checkCancellation()
@@ -257,6 +278,14 @@ public final class DictationController {
             } catch {
                 buffer.finish()
                 await session.cancel()
+                await MainActor.run { [weak self] in
+                    // A cancelled older session must never change a newer HUD.
+                    guard let self, self.state == .recording,
+                          self.liveAudioBuffer === buffer else { return }
+                    self.recorder.onSamples = nil
+                    HUD.shared.update(L("Cloud unavailable · Recording continues locally"))
+                    Log.warn("Live dictation feed failed; microphone capture continues for local recovery")
+                }
                 return error.localizedDescription
             }
         }
@@ -493,47 +522,49 @@ public final class DictationController {
                     HUD.shared.flash("Nothing recognized")
                     return
                 }
+                let cleanup: ((String) async -> DictationCleanupResult)?
                 if shouldClean {
                     HUD.shared.updatePartial(text)
                     HUD.shared.update(cleanupModel == "gpt-5-nano"
                         ? L("Formatting with GPT-5 nano…")
                         : L("Cleaning with local AI…"))
-                    let raw = text
-                    text = await DictationCleanup.clean(text, model: cleanupModel)
-                    try Task.checkCancellation()
-                    // Watch what the cleanup fixes; a word corrected twice
-                    // becomes an automatic correction, LLM or not.
-                    Vocabulary.shared.learn(from: raw, to: text)
+                    cleanup = { await DictationCleanup.process($0, model: cleanupModel) }
+                } else {
+                    cleanup = nil
                 }
-                // Always applied, and cheap: your own spellings win. Knowing
-                // which language was recognised makes the guard against wrong
-                // corrections much sharper.
-                text = TranscriptCorrector.apply(
-                    text,
-                    vocabulary: Vocabulary.shared,
-                    language: transcriptLanguage
-                )
-                CompanionModel.shared.noteDictation(text)
-                // Record BEFORE inserting: whatever happens next, the
-                // transcript is retrievable from the menu and the History tab.
-                TranscriptHistory.shared.record(DictationRecord(
-                    date: Date(),
-                    text: text,
+                let finalized = try await DictationFinalizer.finalize(
+                    rawText: text,
                     recordingSeconds: recordingSeconds,
-                    transcriptionSeconds: Date().timeIntervalSince(transcriptionStarted),
+                    transcriptionStarted: transcriptionStarted,
                     model: modelLabel,
-                    cleaned: shouldClean
-                ))
-
-                if let destination {
-                    destination(text)
+                    cleanup: cleanup,
+                    learnCorrections: { Vocabulary.shared.learn(from: $0, to: $1) },
+                    correct: {
+                        TranscriptCorrector.apply($0, vocabulary: Vocabulary.shared, language: transcriptLanguage)
+                    }
+                )
+                try await DictationFinalizer.deliver(
+                    finalized,
+                    history: .shared,
+                    present: {
+                        CompanionModel.shared.noteDictation($0)
+                        HUD.shared.updatePartial($0)
+                    },
+                    insert: {
+                        if let destination {
+                            destination($0)
+                            return nil
+                        }
+                        return await TextInserter.insert($0, targetPID: targetPID)
+                    }
+                )
+                if let failure = finalized.cleanupFailure {
+                    HUD.shared.flash(failure == .unavailable
+                        ? L("Formatting unavailable · Unformatted dictation saved")
+                        : L("Formatting failed · Unformatted dictation saved"), seconds: 4)
+                } else {
                     HUD.shared.hide(immediately: true)
-                    return
                 }
-                // Every outcome has delivered the text to the field or clipboard.
-                // Close now rather than leaving the companion idle for six seconds.
-                await TextInserter.insert(text, targetPID: targetPID)
-                HUD.shared.hide(immediately: true)
             } catch is CancellationError {
                 // cancel() already updated the HUD/state.
             } catch {

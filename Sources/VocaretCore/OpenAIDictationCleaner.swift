@@ -56,7 +56,15 @@ struct OpenAIDictationCleaner: Sendable {
         apiKey: String,
         vocabulary: [String]
     ) async -> String {
-        guard !text.isEmpty else { return text }
+        await processDictation(text, apiKey: apiKey, vocabulary: vocabulary).text
+    }
+
+    func processDictation(
+        _ text: String,
+        apiKey: String,
+        vocabulary: [String]
+    ) async -> DictationCleanupResult {
+        guard !text.isEmpty else { return DictationCleanupResult(text: text, failure: nil) }
         do {
             let request = try makeRequest(
                 text: text,
@@ -70,27 +78,31 @@ struct OpenAIDictationCleaner: Sendable {
             let cleaned = try Self.outputText(from: data)
             guard CleanupGuard.isSafe(original: text, cleaned: cleaned) else {
                 Log.warn("Discarded OpenAI cleanup: output was not a correction of the input")
-                return text
+                return DictationCleanupResult(text: text, failure: .rejected)
             }
-            return cleaned
+            return DictationCleanupResult(text: cleaned, failure: nil)
         } catch {
             Log.warn("OpenAI dictation cleanup skipped: \(error.localizedDescription)")
-            return text
+            let failure: DictationCleanupFailure = (error as? OpenAIDictationCleanerError) == .incompleteResponse
+                || (error as? OpenAIDictationCleanerError) == .emptyOutput ? .incomplete : .unavailable
+            return DictationCleanupResult(text: text, failure: failure)
         }
     }
 
     func makeRequest(text: String, apiKey: String, vocabulary: [String]) throws -> URLRequest {
         var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"
-        request.timeoutInterval = 4
+        request.timeoutInterval = DictationCleanup.timeout(for: text)
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.httpBody = try JSONEncoder().encode(RequestBody(
             model: Self.model,
             instructions: LLMPrompts.dictationSystem
                 + LLMPrompts.vocabularyHint(terms: vocabulary),
-            input: text,
-            reasoning: .init(effort: "minimal"),
+            input: LLMPrompts.dictationUser(text),
+            // Low effort improved repair handling and instruction-following in
+            // multilingual checks while retaining the existing small model.
+            reasoning: .init(effort: "low"),
             text: .init(verbosity: "low"),
             maxOutputTokens: 4_096,
             store: false
@@ -152,31 +164,5 @@ private extension OpenAIDictationCleaner {
     struct Content: Decodable {
         let type: String
         let text: String?
-    }
-}
-
-enum DictationCleanup {
-    static func warmUp(model: String) {
-        if model == "local" { LLMCleaner.shared.warmUp() }
-    }
-
-    static func clean(_ text: String, model: String) async -> String {
-        guard model == "gpt-5-nano" else {
-            return await LLMCleaner.shared.cleanDictation(text)
-        }
-        do {
-            guard let key = try await AsyncAPIKeyAccess.shared.load(.openAI) else {
-                Log.warn("OpenAI dictation cleanup skipped: API key is missing")
-                return text
-            }
-            return await OpenAIDictationCleaner.shared.cleanDictation(
-                text,
-                apiKey: key,
-                vocabulary: Vocabulary.shared.terms
-            )
-        } catch {
-            Log.warn("OpenAI dictation cleanup skipped: \(error.localizedDescription)")
-            return text
-        }
     }
 }

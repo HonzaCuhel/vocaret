@@ -1,4 +1,5 @@
 import XCTest
+import AppKit
 @testable import VocaretCore
 
 @MainActor
@@ -91,13 +92,78 @@ final class RecorderHUDTests: XCTestCase {
         )
     }
 
-    func testTranscriptPresentationKeepsTheLastFourSentences() {
-        let transcript = "První věta. Druhá věta? Third sentence! Čtvrtá věta. Poslední rozepsaná věta"
+    func testLongUnpunctuatedTranscriptShowsNewestWordsWithinThreeLines() {
+        let ending = "právě teď vidím poslední slova"
+        let transcript = String(repeating: "pokračuji v dlouhém diktování bez teček ", count: 120) + ending
+        let visible = RecorderTranscriptPresentation.visibleText(transcript)
 
-        XCTAssertEqual(
-            RecorderTranscriptPresentation.visibleText(transcript),
-            "Druhá věta? Third sentence! Čtvrtá věta. Poslední rozepsaná věta"
-        )
+        XCTAssertTrue(visible.hasSuffix(ending))
+        XCTAssertLessThanOrEqual(transcriptLineCount(visible), 3)
+        XCTAssertLessThan(visible.count, transcript.count)
+    }
+
+    func testSeveralLongSentencesKeepVisibleEnding() {
+        let sentence = String(repeating: "Tato dlouhá věta zabere několik řádků ", count: 12) + ". "
+        let ending = "The latest English words are visible."
+        let visible = RecorderTranscriptPresentation.visibleText(String(repeating: sentence, count: 5) + ending)
+
+        XCTAssertTrue(visible.hasSuffix(ending))
+        XCTAssertLessThanOrEqual(transcriptLineCount(visible), 3)
+    }
+
+    func testTranscriptTailPreservesCzechAndEnglishGraphemeClusters() {
+        let ending = "Příliš žluťoučký kůň 👩🏽‍💻 cafe\u{301} — last words"
+        let transcript = String(repeating: "Široká řeč and English words 👨‍👩‍👧‍👦 ", count: 100) + ending
+        let visible = RecorderTranscriptPresentation.visibleText(transcript)
+
+        XCTAssertTrue(visible.hasSuffix(ending))
+        XCTAssertTrue(transcript.hasSuffix(visible))
+        XCTAssertLessThanOrEqual(transcriptLineCount(visible), 3)
+    }
+
+    func testPresentationUpdatesTailWithoutDiscardingFullTranscript() {
+        let model = RecorderModel()
+        let transcript = String(repeating: "Ještě stále mluvím a vidím průběžný přepis ", count: 100)
+        model.partialText = transcript + "první konec"
+        let previous = model.presentedPartialText
+        model.partialText = transcript + "druhý konec"
+
+        XCTAssertTrue(model.presentedPartialText.hasSuffix("druhý konec"))
+        XCTAssertNotEqual(model.presentedPartialText, previous)
+        XCTAssertEqual(model.partialText, transcript + "druhý konec")
+        XCTAssertEqual(transcriptLineCount(previous), transcriptLineCount(model.presentedPartialText))
+        XCTAssertLessThanOrEqual(transcriptLineCount(model.presentedPartialText), 3)
+    }
+
+    func testShortTranscriptPreservesAllSentencesAndLineBreaks() {
+        let transcript = "A. B. C. D. E.\nHello, světe."
+        XCTAssertEqual(RecorderTranscriptPresentation.visibleText(transcript), transcript)
+        XCTAssertEqual(RecorderTranscriptPresentation.visibleText(" \n\t "), "")
+    }
+
+    func testRecordingPresentationShowsFallbackStatusAlongsideTranscript() {
+        let model = RecorderModel()
+        model.beginRecording(status: "Live · Soniox", hint: "Release to insert")
+        model.partialText = "rozpracovaný text"
+        model.statusText = "Cloud unavailable · Local fallback"
+
+        XCTAssertEqual(model.presentedStatusText, "Cloud unavailable · Local fallback")
+        XCTAssertEqual(model.presentedPartialText, "rozpracovaný text")
+    }
+
+    private func transcriptLineCount(_ text: String) -> Int {
+        let storage = NSTextStorage(string: text, attributes: [.font: NSFont.systemFont(ofSize: 14)])
+        let manager = NSLayoutManager()
+        let container = NSTextContainer(size: CGSize(width: 392, height: CGFloat.greatestFiniteMagnitude))
+        container.lineFragmentPadding = 0
+        storage.addLayoutManager(manager)
+        manager.addTextContainer(container)
+        manager.ensureLayout(for: container)
+        var lines = 0
+        manager.enumerateLineFragments(forGlyphRange: manager.glyphRange(for: container)) { _, _, _, _, _ in
+            lines += 1
+        }
+        return lines
     }
 
     func testShortTranscriptIsCentredButLongerCopyIsLeadingAligned() {

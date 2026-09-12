@@ -182,10 +182,10 @@ struct CompanionView: View {
                     .help(L("Hide panel (recording continues)"))
             }
             if !recorder.partialText.isEmpty {
-                Text(recorder.presentedPartialText).font(.system(size: 14)).lineLimit(3)
-                    .frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled)
-            } else if recorder.phase == .message, !recorder.statusText.isEmpty {
-                Text(recorder.statusText).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                RecorderTranscriptView(transcript: recorder.partialText)
+            }
+            if !recorder.presentedStatusText.isEmpty {
+                Text(recorder.presentedStatusText).font(.caption).foregroundStyle(.secondary).lineLimit(2)
             }
             if recording, let status = companion.mediaStatus {
                 Text(status).font(.system(size: 10)).foregroundStyle(.orange).lineLimit(2)

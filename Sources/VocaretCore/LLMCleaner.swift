@@ -178,27 +178,34 @@ public actor LLMCleaner {
     }
 
     public func cleanDictation(_ text: String) async -> String {
-        guard !text.isEmpty else { return text }
+        await processDictation(text).text
+    }
+
+    func processDictation(_ text: String) async -> DictationCleanupResult {
+        guard !text.isEmpty else { return DictationCleanupResult(text: text, failure: nil) }
         do {
             let output = try await chat(
                 system: LLMPrompts.dictationSystem
                     + LLMPrompts.vocabularyHint(terms: Vocabulary.shared.terms),
-                user: text,
-                maxTokens: 4096
+                user: LLMPrompts.dictationUser(text),
+                maxTokens: 4096,
+                timeout: DictationCleanup.timeout(for: text)
             )
             // A truncated cleanup would silently lose the tail of what the
             // user said — prefer the raw transcript in that case.
-            guard !output.text.isEmpty, !output.truncated else { return text }
+            guard !output.text.isEmpty, !output.truncated else {
+                return DictationCleanupResult(text: text, failure: .incomplete)
+            }
             // And a small model sometimes translates the text or answers it
             // instead of correcting it. Both are worse than doing nothing.
             guard CleanupGuard.isSafe(original: text, cleaned: output.text) else {
                 Log.warn("Discarded LLM cleanup: output was not a correction of the input")
-                return text
+                return DictationCleanupResult(text: text, failure: .rejected)
             }
-            return output.text
+            return DictationCleanupResult(text: output.text, failure: nil)
         } catch {
             Log.warn("Dictation cleanup skipped: \(error.localizedDescription)")
-            return text
+            return DictationCleanupResult(text: text, failure: .unavailable)
         }
     }
 
@@ -312,7 +319,7 @@ public actor LLMCleaner {
 
     private var inFlightRequests = 0
 
-    private func chat(system: String, user: String, maxTokens: Int) async throws -> ChatOutput {
+    private func chat(system: String, user: String, maxTokens: Int, timeout: TimeInterval = 900) async throws -> ChatOutput {
         try await ensureServerRunning()
         // Re-arm the idle timer on EVERY exit (success, HTTP error, timeout) once
         // the last concurrent request finishes — otherwise a failed request
@@ -327,7 +334,7 @@ public actor LLMCleaner {
         var request = URLRequest(url: URL(string: "http://127.0.0.1:\(port)/v1/chat/completions")!)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.timeoutInterval = 900
+        request.timeoutInterval = timeout
         request.httpBody = try JSONEncoder().encode(ChatRequest(
             messages: [
                 .init(role: "system", content: system),

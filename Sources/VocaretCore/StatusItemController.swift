@@ -336,10 +336,11 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
     }
 
     @objc private func copyLastTranscript() {
-        guard let entry = TranscriptHistory.shared.last else { return }
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        pasteboard.setString(entry.text, forType: .string)
+        guard DictationFinalizer.copyLast(from: .shared, write: { text in
+            let pasteboard = NSPasteboard.general
+            pasteboard.clearContents()
+            pasteboard.setString(text, forType: .string)
+        }) else { return }
         HUD.shared.flash("Last dictation copied — press ⌘V", seconds: 3)
     }
 

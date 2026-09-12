@@ -65,7 +65,7 @@ public enum VocaretMain {
 
         // Benchmarks the REAL dictation path (samples in, cleaned text out),
         // which differs from --transcribe: it uses the single-window decode
-        // and the sticky language, then the LLM cleanup if it is enabled.
+        // and automatic language detection, then LLM cleanup if it is enabled.
         // `Vocaret --bench-dictation clip.wav [--repeat 3]`
         if let flagIndex = arguments.firstIndex(of: "--bench-dictation"), arguments.count > flagIndex + 1 {
             var repeats = 3

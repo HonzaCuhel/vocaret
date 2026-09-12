@@ -123,9 +123,20 @@ actor SonioxTranscriber: LiveTranscriptionSession {
         guard state == .running else { throw SonioxTranscriberError.invalidState }
         guard !samples.isEmpty else { return }
 
+        // A stalled send otherwise prevents the feed from draining on release,
+        // before finish() can even start its own deadline. Close the transport
+        // to unblock the send and let retained microphone audio recover locally.
+        let deadline = Task { [weak self, sleep] in
+            do { try await sleep(.seconds(10)) } catch { return }
+            guard !Task.isCancelled else { return }
+            await self?.audioSendDidTimeOut()
+        }
+        defer { deadline.cancel() }
+
         do {
             try await writer.send(.binary(Self.pcmData(samples)))
         } catch {
+            if case .failure(let terminalError) = terminalResult { throw terminalError }
             let mapped = SonioxTranscriberError.transport(error.localizedDescription)
             await complete(.failure(mapped))
             throw mapped
@@ -156,10 +167,19 @@ actor SonioxTranscriber: LiveTranscriptionSession {
             throw SonioxTranscriberError.cancelled
         }
 
+        // Include final silence and the finalize request in the deadline,
+        // not just the response after both sends have already completed.
+        timeoutTask = Task { [weak self, finalizationTimeout, sleep] in
+            do { try await sleep(finalizationTimeout) } catch { return }
+            guard !Task.isCancelled else { return }
+            await self?.finalizationDidTimeOut()
+        }
+
         do {
             try await writer.send(.binary(Data(count: 3_200 * MemoryLayout<Float>.size)))
             try await writer.send(.text(#"{"type":"finalize"}"#))
         } catch {
+            if let terminalResult { return try terminalResult.get() }
             let mapped: SonioxTranscriberError = Task.isCancelled || error is CancellationError
                 ? .cancelled
                 : .transport(error.localizedDescription)
@@ -171,14 +191,6 @@ actor SonioxTranscriber: LiveTranscriptionSession {
 
         return try await withCheckedThrowingContinuation { continuation in
             finishContinuation = continuation
-            timeoutTask = Task { [weak self, finalizationTimeout, sleep] in
-                do {
-                    try await sleep(finalizationTimeout)
-                } catch {
-                    return
-                }
-                await self?.finalizationDidTimeOut()
-            }
         }
     }
 
@@ -237,6 +249,11 @@ actor SonioxTranscriber: LiveTranscriptionSession {
     private func finalizationDidTimeOut() async {
         guard state == .finishing, terminalResult == nil else { return }
         await complete(.failure(.finalizationTimedOut))
+    }
+
+    private func audioSendDidTimeOut() async {
+        guard state == .running, terminalResult == nil else { return }
+        await complete(.failure(.transport("Timed out sending audio to Soniox.")))
     }
 
     private func complete(_ result: Result<String, SonioxTranscriberError>) async {

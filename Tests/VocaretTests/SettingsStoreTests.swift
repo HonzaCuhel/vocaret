@@ -20,7 +20,7 @@ final class SettingsStoreTests: XCTestCase {
 
     func testDefaults() {
         XCTAssertEqual(store.language, "auto")
-        XCTAssertEqual(store.autoLanguages, ["cs", "en"])
+        XCTAssertEqual(store.autoLanguages, [])
         XCTAssertEqual(store.whisperModel, SettingsStore.defaultWhisperModel)
         XCTAssertEqual(store.asrEngine, "whisper")
         XCTAssertEqual(store.sonioxRegion, "eu")
@@ -38,6 +38,30 @@ final class SettingsStoreTests: XCTestCase {
         XCTAssertNil(store.llamaServerPath)
         XCTAssertNil(store.llmModelPath)
         XCTAssertEqual(store.llmPort, 8765)
+    }
+
+    func testDefaultAutoDetectionDoesNotExcludeGermanOrOtherLanguages() {
+        XCTAssertEqual(store.language, "auto")
+        XCTAssertTrue(store.autoLanguages.isEmpty, "An unset preference must let the engine detect any supported language")
+        XCTAssertNil(suiteDefaults.object(forKey: "autoLanguages"), "Reading defaults must not persist a language restriction")
+    }
+
+    func testSavedLanguageRestrictionIsPreserved() {
+        suiteDefaults.set(["cs", "en"], forKey: "autoLanguages")
+        XCTAssertEqual(store.autoLanguages, ["cs", "en"])
+
+        store.autoLanguages = ["de", "fr", "en"]
+        let reread = SettingsStore(defaults: UserDefaults(suiteName: suiteName)!)
+        XCTAssertEqual(reread.autoLanguages, ["de", "fr", "en"])
+    }
+
+    func testExplicitGermanSelectionIsPreserved() {
+        store.language = "de"
+        store.autoLanguages = []
+
+        let reread = SettingsStore(defaults: UserDefaults(suiteName: suiteName)!)
+        XCTAssertEqual(reread.language, "de")
+        XCTAssertTrue(reread.autoLanguages.isEmpty)
     }
 
     func testRoundTrip() {

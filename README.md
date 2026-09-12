@@ -7,7 +7,7 @@
 <p align="center">
   <strong>Local-first speech-to-text for macOS.</strong><br>
   Hold a key, speak, let go — your words appear where your cursor is.<br>
-  Czech and English, mixed freely. Local by default; cloud only when selected.
+  Speak your language, including Czech, English, and German. Local by default; cloud only when selected.
 </p>
 
 <p align="center">
@@ -32,7 +32,7 @@
   <a href="https://honzacuhel.github.io/vocaret/#demo"><strong>▶ Watch the 36-second product film →</strong></a>
 </p>
 
-> **Status: v0.2.0-beta.2.** An early Apple Silicon beta, tested on one Mac. Read
+> **Status: v0.2.2.** An early Apple Silicon release, tested on one Mac. Read
 > [the current limitations](#limitations) before installing.
 
 
@@ -66,7 +66,8 @@ YouTube needs browser Automation and JavaScript permissions. See
 
 - **Dictation anywhere** — hold `⌃⌥D`, speak, and release to insert text at the
   cursor. A quick tap toggles recording.
-- **Czech and English together** — language is detected per utterance.
+- **Multilingual dictation** — language is detected per utterance, including
+  Czech, English, German, and other languages supported by the selected engine.
 - **Local or live** — use local Whisper/Parakeet, or bring a Soniox key for live
   words with automatic local fallback.
 - **Meeting transcription** — `⌃⌥M` captures microphone and system audio as
@@ -74,8 +75,9 @@ YouTube needs browser Automation and JavaScript permissions. See
   the call, with live speaker-labelled passages in the Meetings window.
 - **Useful extras** — optional local Qwen or GPT-5 nano cleanup, searchable history, speaking
   metrics, meeting summaries, and automatic Spotify/Music/YouTube pause and resume.
-- **Focused overlay** — see microphone level and up to four recent live lines
-  without leaving the app where you are typing.
+- **Focused overlay** — see microphone level and the latest three live lines,
+  including long sentences without punctuation. The complete transcript is
+  preserved for insertion and history.
 
 Whisper, Parakeet, and Qwen through llama.cpp run locally. Soniox is an explicit
 opt-in for live audio; GPT-5 nano is a separate opt-in that receives transcript
@@ -90,9 +92,9 @@ text for formatting. See [PRIVACY.md](PRIVACY.md) for the exact data flow.
 
 ## Install
 
-Download the [Apple Silicon beta DMG](https://github.com/HonzaCuhel/vocaret/releases/download/v0.2.0-beta.2/Vocaret-0.2.0-beta.2-macOS-arm64.dmg)
-from the [release page](https://github.com/HonzaCuhel/vocaret/releases/tag/v0.2.0-beta.2).
-Open it and drag Vocaret into Applications. The beta is **ad-hoc signed and not
+Download the [Vocaret 0.2.2 Apple Silicon DMG](https://github.com/HonzaCuhel/vocaret/releases/download/v0.2.2/Vocaret-0.2.2-macOS-arm64.dmg)
+from the [release page](https://github.com/HonzaCuhel/vocaret/releases/tag/v0.2.2).
+Open it and drag Vocaret into Applications. This build is **ad-hoc signed and not
 notarized**; macOS may require explicit approval in Privacy & Security. There is
 no automatic updater. Speech models download separately on first use.
 
@@ -152,6 +154,15 @@ settings. The menu also exposes the latest dictation if insertion fails.
 4. Connect. Settings shows current-month realtime cost, requests, and duration.
 
 Soniox is optional and paid. Select Whisper or Parakeet for fully local use.
+Automatic detection is unrestricted by default, including German. Choose a
+fixed language or a restricted set under **Settings → Detection languages**
+when needed; previously saved restrictions are preserved. Selected languages use Soniox's
+[strict language hints](https://soniox.com/docs/stt/concepts/language-restrictions)
+to reduce accidental switches; recognition is still best-effort.
+Use **All supported languages** to remove a saved restriction. If the live
+connection fails, the panel reports it while microphone recording continues;
+the retained audio is transcribed locally after you release the shortcut.
+Stalled audio sends time out after 10 seconds, and finalization after 5 seconds.
 
 ### AI cleanup
 
@@ -162,6 +173,18 @@ In **Settings → AI cleanup**, enable dictation cleanup and choose:
   is never sent to OpenAI, responses use `store: false`, and failures fall back
   to the original transcript. See the provider’s
   [model page](https://developers.openai.com/api/docs/models/gpt-5-nano) for pricing.
+
+Cleanup removes fillers, accidental repetition and abandoned starts in the
+spoken language. Explicit changes of mind replace the superseded detail:
+“The budget is 100 dollars, actually 30 dollars” becomes “The budget is 30 dollars.”
+Independent amounts, conditions and negations are preserved. This is model-based
+editing; check important details before sending the text.
+
+History, **Copy Last**, the final preview and insertion use the same result after
+cleanup and personal spelling corrections. If formatting is unavailable or its
+output fails validation, the original transcript is retained with a visible
+notice and is not marked as AI formatted. GPT-5 nano uses low reasoning effort;
+its request timeout grows from 12 to 45 seconds with transcript length.
 
 ## Meeting privacy
 
@@ -194,7 +217,8 @@ Restart Vocaret after changing defaults.
 - Beta DMG is ad-hoc signed, not notarized. No auto-update; rebuilt ad-hoc apps can require renewed permissions.
 - Tested on one Apple Silicon Mac, not broad hardware or macOS combinations.
 - Meeting labels are `Me` / `Them`, not full speaker diarization.
-- Auto mode defaults to Czech and English; configure `autoLanguages` for others.
+- Auto mode detects all engine-supported languages by default; set `autoLanguages`
+  only when you want to restrict detection to a chosen set.
 - This is a personal project. Issues are welcome, but support is not guaranteed.
 
 ## Performance
@@ -232,7 +256,7 @@ Microphone and System Audio Recording.
 ```bash
 swift test
 swift build
-.build/debug/Vocaret --transcribe audio.wav [--language auto|cs|en]
+.build/debug/Vocaret --transcribe audio.wav [--language auto|cs|en|de|…]
 open -W -a ~/Applications/Vocaret.app --args --selftest all 8 --out /tmp/selftest.log
 .build/release/Vocaret --coach
 .build/release/Vocaret --render-companion /tmp/companion # synthetic glass panel previews

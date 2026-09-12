@@ -29,8 +29,11 @@ key for authentication but no recording or transcript.
 With **GPT-5 nano selected for AI cleanup**, Vocaret sends the completed
 transcript text, the cleanup instructions, and your vocabulary terms to the
 OpenAI Responses API. It does not send audio. Requests use `store: false`,
-minimal reasoning, and a four-second timeout. An error, timeout, empty response,
-or suspicious rewrite is discarded and the original transcript is inserted.
+low reasoning effort, and a transcript-length-dependent request timeout of
+12–45 seconds. An error, timeout, empty response, or suspicious rewrite is
+discarded; the original transcript remains available and an on-screen notice
+identifies the unformatted fallback. History, Copy Last, and insertion use the
+same final result after cleanup and personal spelling corrections.
 Review the [OpenAI API data controls](https://developers.openai.com/api/docs/guides/your-data)
 before opting in.
 

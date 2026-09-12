@@ -3,6 +3,70 @@ import XCTest
 @testable import VocaretCore
 
 final class SonioxTranscriberTests: XCTestCase {
+    func testFinalizationDeadlineIncludesBlockedSilenceSend() async throws {
+        let transport = FakeSonioxTransport(blockFinalSilence: true)
+        let subject = SonioxTranscriber(configuration: configuration, transport: transport,
+                                       finalizationTimeout: .milliseconds(40))
+        try await subject.start(onPartial: { _ in })
+        let safety = Task {
+            try? await Task.sleep(for: .milliseconds(500))
+            if !Task.isCancelled { await subject.cancel() }
+        }
+        defer { safety.cancel() }
+        do {
+            _ = try await subject.finish()
+            XCTFail("A stalled send must time out")
+        } catch {
+            XCTAssertEqual(error as? SonioxTranscriberError, .finalizationTimedOut)
+        }
+        let closed = await transport.isClosed()
+        XCTAssertTrue(closed)
+    }
+
+    func testAudioSendDeadlineUnblocksStalledFeed() async throws {
+        let transport = FakeSonioxTransport(blockFinalSilence: true)
+        let subject = SonioxTranscriber(configuration: configuration, transport: transport,
+                                       sleep: { _ in try await Task.sleep(for: .milliseconds(40)) })
+        try await subject.start(onPartial: { _ in })
+        let safety = Task {
+            try? await Task.sleep(for: .milliseconds(500))
+            if !Task.isCancelled { await subject.cancel() }
+        }
+        defer { safety.cancel() }
+        do {
+            try await subject.append(Array(repeating: 0, count: 1_600))
+            XCTFail("A stalled feed must time out")
+        } catch {
+            XCTAssertEqual(error as? SonioxTranscriberError, .transport("Timed out sending audio to Soniox."))
+        }
+        let closed = await transport.isClosed()
+        XCTAssertTrue(closed)
+    }
+
+    func testNinetySecondsOfAudioKeepsEveryChunkAndBilingualTail() async throws {
+        let transport = FakeSonioxTransport(afterFinalize: [response(tokens: [("<fin>", true)])])
+        let partials = LockedStrings()
+        let subject = SonioxTranscriber(configuration: configuration, transport: transport)
+        try await subject.start(onPartial: { partials.append($0) })
+        let chunk = [Float](repeating: 0.125, count: 1_600)
+        var expected = ""
+        for index in 0..<900 {
+            try await subject.append(chunk)
+            if index % 100 == 0 {
+                let text = "Věta \(index). "
+                expected += text
+                await transport.publish(response(tokens: [(text, true), ("<end>", true)]))
+            }
+        }
+        let tail = "The final words. Poslední slova."
+        await transport.publish(response(tokens: [(tail, true)]))
+        let text = try await subject.finish()
+        let audioBytes = await transport.audioByteCount()
+        XCTAssertEqual(audioBytes, 90 * 16_000 * MemoryLayout<Float>.size)
+        XCTAssertEqual(text, expected + tail)
+        XCTAssertEqual(partials.values.last, expected + tail)
+    }
+
     func testFinishSendsSilenceThenFinalizeAndWaitsForFin() async throws {
         let transport = FakeSonioxTransport(afterFinalize: [
             response(tokens: [("Ahoj", true)]),
@@ -375,6 +439,10 @@ private actor FakeSonioxTransport: SonioxTransport {
     }
 
     func frameKinds() -> [FrameKind] { frames.map(\.kind) }
+
+    func audioByteCount() -> Int { frames.filter { $0.kind == .audio }.reduce(0) { $0 + $1.data.count } }
+
+    func publish(_ data: Data) { enqueue(data) }
 
     func silenceByteCount() -> Int {
         frames.first(where: { $0.kind == .silence })?.data.count ?? 0

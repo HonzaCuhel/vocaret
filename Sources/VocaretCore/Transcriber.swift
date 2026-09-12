@@ -10,17 +10,11 @@ public actor Transcriber {
     public static let shared = Transcriber()
 
     private var whisper: WhisperKit?
-    /// Language of the last confidently transcribed chunk. Short utterances
-    /// ("Ano.", "Hotovo.") are decoded with it directly — one encoder pass
-    /// instead of three — because people rarely switch language for one word.
-    private var stickyLanguage: String?
     /// Language of the most recent decode, for callers that want to know what
     /// they are looking at (the vocabulary corrector treats a word differently
     /// inside a Czech sentence than inside an English one).
     private var _lastLanguage: String?
     public var lastLanguage: String? { _lastLanguage }
-    /// Below this, skip detection and trust `stickyLanguage`.
-    static let stickyLanguageMaxSeconds = 3.0
     /// How many allowed languages to try when Whisper's own pick is not one of
     /// them. Each costs a decode, and the user may have checked twelve.
     static let maxLanguageCandidates = 2
@@ -95,7 +89,7 @@ public actor Transcriber {
         defer { releaseDecode() }
         try Task.checkCancellation()
         let kit = engine == "parakeet" ? nil : try await ensureLoaded()
-        return try await transcribeChunk(kit, samples, offset: offset, allowSticky: false)
+        return try await transcribeChunk(kit, samples, offset: offset)
     }
 
     public func unload() async {
@@ -105,7 +99,6 @@ public actor Transcriber {
         unloadTask?.cancel()
         unloadTask = nil
         whisper = nil
-        stickyLanguage = nil
         _lastLanguage = nil
         await ParakeetEngine.shared.unload()
         Log.info("Whisper model unloaded")
@@ -157,10 +150,10 @@ public actor Transcriber {
             // Whisper hallucinates on silence ("Titulky vytvořil JohnyX.",
             // "Thank you." …) — only decode if the VAD finds actual speech.
             guard !UtteranceChunker().chunks(in: samples).isEmpty else { return "" }
-            let segments = try await transcribeChunk(kit, samples, offset: 0, allowSticky: true)
+            let segments = try await transcribeChunk(kit, samples, offset: 0)
             return segments.map(\.text).joined(separator: " ")
         }
-        let segments = try await transcribeChunked(kit, samples, allowSticky: true)
+        let segments = try await transcribeChunked(kit, samples)
         return segments.map(\.text).joined(separator: " ")
     }
 
@@ -191,8 +184,8 @@ public actor Transcriber {
 
     /// Meeting path: audio file in, timestamped segments out. Always chunked
     /// per utterance so bilingual conversations keep both languages — and
-    /// every chunk is detected on its own (no sticky language: a one-word
-    /// "Yes" after a Czech turn must not be decoded as Czech).
+    /// every chunk is detected on its own, as in dictation: a one-word
+    /// "Yes" after a Czech turn must not be decoded as Czech.
     public func transcribe(fileURL: URL) async throws -> [SpokenSegment] {
         await acquireDecode()
         defer { releaseDecode() }
@@ -200,12 +193,12 @@ public actor Transcriber {
         let kit = try await engineIfWhisper()
         defer { scheduleUnloadIfConfigured() }
         let samples = try AudioProcessor.loadAudioAsFloatArray(fromPath: fileURL.path)
-        return try await transcribeChunked(kit, samples, allowSticky: false)
+        return try await transcribeChunked(kit, samples)
     }
 
     // MARK: - Chunked / language-aware decoding
 
-    private func transcribeChunked(_ kit: WhisperKit?, _ samples: [Float], allowSticky: Bool) async throws -> [SpokenSegment] {
+    private func transcribeChunked(_ kit: WhisperKit?, _ samples: [Float]) async throws -> [SpokenSegment] {
         let ranges = UtteranceChunker().chunks(in: samples)
         // No speech at all → no transcript. Feeding silence to Whisper only
         // yields hallucinated subtitle credits.
@@ -215,13 +208,13 @@ public actor Transcriber {
         for range in ranges {
             try Task.checkCancellation()
             let offset = Double(range.lowerBound) / MicRecorder.whisperSampleRate
-            segments += try await transcribeChunk(kit, Array(samples[range]), offset: offset, allowSticky: allowSticky)
+            segments += try await transcribeChunk(kit, Array(samples[range]), offset: offset)
         }
         return segments
     }
 
     /// One Whisper window (≤ 30 s). Language policy:
-    /// - forced (settings.language = cs/en): decode with that token.
+    /// - forced (an explicit language code): decode with that token.
     /// - auto: decode with Whisper's own detection (no extra encoder pass);
     ///   if it picked a language outside `autoLanguages`, re-detect restricted
     ///   to the allowed set and decode again with that token forced.
@@ -236,13 +229,15 @@ public actor Transcriber {
         return samples + [Float](repeating: 0, count: minimum - samples.count)
     }
 
-    private func transcribeChunk(_ kit: WhisperKit?, _ rawSamples: [Float], offset: Double, allowSticky: Bool) async throws -> [SpokenSegment] {
+    private func transcribeChunk(_ kit: WhisperKit?, _ rawSamples: [Float], offset: Double) async throws -> [SpokenSegment] {
         let settings = SettingsStore.shared
-        let chunkSeconds = Double(rawSamples.count) / MicRecorder.whisperSampleRate
+        let selectedLanguage = settings.language
+        let allowed = settings.autoLanguages
+        _lastLanguage = nil
         if kit == nil {
             // Parakeet: no zero-padding (it hurts short clips there), one segment
             // per chunk, no per-language re-decode (not language-conditioned).
-            let hint = settings.language == "auto" ? nil : settings.language
+            let hint = selectedLanguage == "auto" ? nil : selectedLanguage
             let (text, confidence) = try await ParakeetEngine.shared.transcribe(samples: rawSamples, language: hint)
             let clean = Self.sanitize(text)
             if confidence < 0.6 { Log.warn("Parakeet low confidence \(confidence) for chunk at \(offset)s") }
@@ -252,52 +247,32 @@ public actor Transcriber {
         }
         guard let kit else { throw TranscriberError.engineNotLoaded }
         let samples = Self.padded(rawSamples)
-        var results: [TranscriptionResult]
-        if settings.language == "auto" {
-            let allowed = settings.autoLanguages
-            // Only after a real detection in this session, and only while that
-            // language is still in the allowed set.
-            let sticky = (allowSticky && chunkSeconds < Self.stickyLanguageMaxSeconds) ? stickyLanguage : nil
-            if let sticky, allowed.isEmpty || allowed.contains(sticky) {
-                // Short utterance: one pass with the last language.
-                results = try await kit.transcribe(audioArray: samples, decodeOptions: decodeOptions(language: sticky))
-            } else {
-                results = try await kit.transcribe(audioArray: samples, decodeOptions: decodeOptions(language: nil))
-                if !allowed.isEmpty, let detected = results.first?.language, !allowed.contains(detected) {
-                    // Whisper picked a language the user does not use (a short
-                    // Czech "Ano." is happily heard as Slovak). Decode it once
-                    // per allowed language and keep whichever the model is most
-                    // confident about.
-                    //
-                    // NOT via detectLangauge(): its `langProbs` carries only the
-                    // single top-1 language — the one just rejected — so ranking
-                    // the allowed set by it always returned the first entry, i.e.
-                    // English speech was silently re-decoded as Czech.
-                    let candidates = Array(allowed.prefix(Self.maxLanguageCandidates))
-                    var best: (language: String, score: Float, results: [TranscriptionResult])?
-                    for candidate in candidates {
-                        let attempt = try await kit.transcribe(audioArray: samples, decodeOptions: decodeOptions(language: candidate))
-                        // Mean per-segment avgLogprob: how confident Whisper is
-                        // that this audio is that language.
-                        let segments = attempt.flatMap(\.segments).filter { !$0.text.trimmingCharacters(in: .whitespaces).isEmpty }
-                        guard !segments.isEmpty else { continue }
-                        let score = segments.map(\.avgLogprob).reduce(0, +) / Float(segments.count)
-                        if score > (best?.score ?? -.infinity) { best = (candidate, score, attempt) }
-                    }
-                    if let best {
-                        Log.info("Whisper detected '\(detected)' (not allowed); using '\(best.language)' (avgLogProb \(best.score))")
-                        results = best.results
-                    }
+        // Detect every automatic chunk independently. A short German sentence
+        // must not inherit Czech from a previous dictation or meeting turn.
+        var results = try await kit.transcribe(
+            audioArray: samples, decodeOptions: Self.decodeOptions(language: selectedLanguage)
+        )
+        if selectedLanguage == "auto" {
+            if !allowed.isEmpty, let detected = results.first?.language, !allowed.contains(detected) {
+                // Respect an explicitly restricted set. WhisperKit's
+                // detectLangauge() exposes only its rejected top-1 language,
+                // so compare actual allowed-language decodes by confidence.
+                let candidates = Array(allowed.prefix(Self.maxLanguageCandidates))
+                var best: (language: String, score: Float, results: [TranscriptionResult])?
+                for candidate in candidates {
+                    let attempt = try await kit.transcribe(audioArray: samples, decodeOptions: Self.decodeOptions(language: candidate))
+                    let segments = attempt.flatMap(\.segments).filter { !$0.text.trimmingCharacters(in: .whitespaces).isEmpty }
+                    guard !segments.isEmpty else { continue }
+                    let score = segments.map(\.avgLogprob).reduce(0, +) / Float(segments.count)
+                    if score > (best?.score ?? -.infinity) { best = (candidate, score, attempt) }
                 }
-                if let language = results.first?.language, allowed.isEmpty || allowed.contains(language),
-                   results.contains(where: { !$0.text.trimmingCharacters(in: .whitespaces).isEmpty }) {
-                    stickyLanguage = language
+                if let best {
+                    Log.info("Whisper detected '\(detected)' (not allowed); using '\(best.language)' (avgLogProb \(best.score))")
+                    results = best.results
                 }
             }
-        } else {
-            results = try await kit.transcribe(audioArray: samples, decodeOptions: decodeOptions(language: settings.language))
         }
-        _lastLanguage = results.first?.language ?? (settings.language == "auto" ? stickyLanguage : settings.language)
+        _lastLanguage = results.first?.language ?? (selectedLanguage == "auto" ? nil : selectedLanguage)
         return results.flatMap { result in
             result.segments.map { segment in
                 SpokenSegment(
@@ -389,7 +364,7 @@ public actor Transcriber {
         // real dictation is instant. Result discarded.
         _ = try? await kit.transcribe(
             audioArray: [Float](repeating: 0, count: Int(MicRecorder.whisperSampleRate * Self.minimumDecodeSeconds)),
-            decodeOptions: decodeOptions(language: "en")
+            decodeOptions: Self.decodeOptions(language: "en")
         )
         Log.info("Whisper model '\(model)' ready")
         return kit
@@ -409,10 +384,10 @@ public actor Transcriber {
 
     // MARK: - Options
 
-    /// `language == nil` → let Whisper detect; otherwise force the token.
+    /// `nil` or `"auto"` → detect this audio; otherwise force the chosen token.
     /// Chunking is ours (UtteranceChunker), so WhisperKit's own is left off.
-    private func decodeOptions(language: String?) -> DecodingOptions {
-        if let language {
+    static func decodeOptions(language: String?) -> DecodingOptions {
+        if let language, language != "auto" {
             return DecodingOptions(language: language, detectLanguage: false)
         }
         return DecodingOptions(detectLanguage: true)

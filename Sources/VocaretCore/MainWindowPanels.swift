@@ -189,15 +189,26 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
 
                 Picker(L("Transcribe"), selection: $settings.language) {
-                    Text(L("Auto-detect")).tag("auto"); Text("Čeština").tag("cs"); Text("English").tag("en")
+                    Text(L("Auto-detect")).tag("auto")
+                    ForEach(L10n.detectableLanguages, id: \.code) { language in
+                        Text(language.name).tag(language.code)
+                    }
                     // A value set via `defaults write` that is not in the list
                     // would otherwise render as an empty pop-up.
-                    if !["auto", "cs", "en"].contains(settings.language) {
+                    if settings.language != "auto", !L10n.detectableLanguages.contains(where: { $0.code == settings.language }) {
                         Text(L("Custom: ") + settings.language).tag(settings.language)
                     }
                 }
                 if settings.language == "auto" {
                     DisclosureGroup(L("Detection languages")) {
+                        Text(L(settings.autoLanguages.isEmpty
+                            ? "No language restriction. German and other supported languages are detected automatically."
+                            : "Only the selected languages are used for detection."))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        if !settings.autoLanguages.isEmpty {
+                            Button(L("All supported languages")) { settings.autoLanguages = [] }
+                        }
                         LazyVGrid(columns: [GridItem(.adaptive(minimum: 130), alignment: .leading)], alignment: .leading, spacing: 4) {
                             ForEach(L10n.detectableLanguages, id: \.code) { lang in
                                 Toggle(lang.name, isOn: Binding(
