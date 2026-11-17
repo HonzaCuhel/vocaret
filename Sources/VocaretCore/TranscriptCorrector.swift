@@ -6,6 +6,24 @@ import Foundation
 /// corrections are substituted. Pure and fast — runs on every dictation whether
 /// or not the AI cleanup is enabled.
 public enum TranscriptCorrector {
+    /// Exact user-confirmed phrase aliases also apply before AI editing. This
+    /// does not fuzzy-match ordinary words or infer new corrections.
+    static func applyConfirmedAliases(_ text: String, aliases: [String: String]) -> String {
+        let keys = aliases.keys.filter { !$0.isEmpty }.sorted { $0.count > $1.count }
+        guard !keys.isEmpty else { return text }
+        let alternatives = keys.map(NSRegularExpression.escapedPattern).joined(separator: "|")
+        let pattern = #"(?<![\p{L}\p{N}])(?:"# + alternatives + #")(?![\p{L}\p{N}])"#
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive) else { return text }
+        let source = text as NSString
+        let result = NSMutableString(string: text)
+        for match in regex.matches(in: text, range: NSRange(location: 0, length: source.length)).reversed() {
+            let word = source.substring(with: match.range)
+            if let key = keys.first(where: { $0.caseInsensitiveCompare(word) == .orderedSame }), let replacement = aliases[key] {
+                result.replaceCharacters(in: match.range, with: replacement)
+            }
+        }
+        return result as String
+    }
 
     /// `language` is the language the utterance was recognised as. Passing it
     /// makes the "is this already a real word?" guard much sharper: inside a

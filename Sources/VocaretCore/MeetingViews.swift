@@ -67,7 +67,7 @@ struct MeetingsView: View {
                 Text(L("Meetings"))
                     .font(.system(size: 26, weight: .semibold, design: .rounded))
                     .accessibilityAddTraits(.isHeader)
-                Label(L("Processed on this Mac"), systemImage: "lock.shield")
+                Label(L("Transcripts saved on this Mac"), systemImage: "internaldrive")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                 if !isActive, !model.meetingStatus.isEmpty {
@@ -272,7 +272,7 @@ struct LiveMeetingPanel: View {
                         .font(.callout).foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
-                Label(L("Processed on this Mac"), systemImage: "lock.shield")
+                Label(L("Transcripts saved on this Mac"), systemImage: "internaldrive")
                     .font(.caption).foregroundStyle(.secondary)
             }
             .padding(24)
@@ -358,16 +358,16 @@ private struct MeetingTurnView: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
-            Image(systemName: turn.speaker == .me ? "person.fill" : "person.2.fill")
+            Image(systemName: turn.speaker.isMicrophone ? "person.fill" : "person.2.fill")
                 .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(turn.speaker == .me ? Color.accentColor : Color.secondary)
+                .foregroundStyle(turn.speaker.isMicrophone ? Color.accentColor : Color.secondary)
                 .frame(width: 30, height: 30)
-                .background(turn.speaker == .me ? Color.accentColor.opacity(0.1) : Color.secondary.opacity(0.1),
+                .background(turn.speaker.isMicrophone ? Color.accentColor.opacity(0.1) : Color.secondary.opacity(0.1),
                             in: RoundedRectangle(cornerRadius: 9))
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 7) {
                 HStack(spacing: 8) {
-                    Text(L(turn.speaker.label)).font(.callout.weight(.semibold))
+                    Text(turn.speaker.localizedLabel).font(.callout.weight(.semibold))
                     Text(TranscriptMerger.timestamp(turn.start))
                         .font(.system(.caption, design: .monospaced))
                         .foregroundStyle(.secondary)

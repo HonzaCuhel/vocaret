@@ -648,8 +648,7 @@ public enum SelfTest {
         try? await Task.sleep(nanoseconds: 700_000_000)
         check(HUD.shared.model.phase == .hidden, "[hud] flash ended the recording status")
         HUD.shared.setPointerInside(false)
-        try? await Task.sleep(for: .seconds(6.3))
-        check(!HUD.shared.isPanelVisible, "[hud] idle panel actually disappeared")
+        await waitForHUDIdleDismissal("[hud] idle panel actually disappeared")
         HUD.shared.showCompanion()
         CompanionModel.shared.editingMemory = true
         HUD.shared.resizeCompanion()
@@ -663,8 +662,7 @@ public enum SelfTest {
         try? await Task.sleep(for: .seconds(6.3))
         check(HUD.shared.isPanelVisible, "[hud] hovering prevents auto-hide")
         HUD.shared.setPointerInside(false)
-        try? await Task.sleep(for: .seconds(6.3))
-        check(!HUD.shared.isPanelVisible, "[hud] leaving the idle panel restarts auto-hide")
+        await waitForHUDIdleDismissal("[hud] leaving the idle panel restarts auto-hide")
         let previousShowHUD = SettingsStore.shared.showHUD
         HUD.shared.showCompanion()
         CompanionModel.shared.editingMemory = true
@@ -673,6 +671,19 @@ public enum SelfTest {
         check(!HUD.shared.isPanelVisible, "[hud] disabling HUD closes even an active memory editor")
         CompanionModel.shared.editingMemory = false
         SettingsStore.shared.showHUD = previousShowHUD
+    }
+
+    /// Observe the actual AppKit window rather than racing a single sleep
+    /// against a six-second DispatchQueue timer. Keep a bounded scheduling
+    /// margin and log the measured delay so late dismissal remains visible.
+    @MainActor
+    private static func waitForHUDIdleDismissal(_ message: String) async {
+        let started = ContinuousClock.now
+        while HUD.shared.isPanelVisible, started.duration(to: .now) < .seconds(9) {
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+        emit("[hud] observed idle dismissal wait: \(started.duration(to: .now))")
+        check(!HUD.shared.isPanelVisible, message)
     }
 
     @MainActor

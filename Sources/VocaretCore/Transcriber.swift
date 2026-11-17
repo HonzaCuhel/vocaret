@@ -67,8 +67,8 @@ public actor Transcriber {
         }
     }
 
-    /// Meetings always use a local engine, including when dictation uses Soniox.
-    /// Keep it resident through silent stretches instead of reloading mid-call.
+    /// Local meeting transcription/recovery keeps its model resident through
+    /// silent stretches. Soniox meetings acquire this lease only for recovery.
     func beginMeeting(engine: String) async {
         activeMeetings += 1
         unloadTask?.cancel()
@@ -192,6 +192,15 @@ public actor Transcriber {
         try Task.checkCancellation()
         let kit = try await engineIfWhisper()
         defer { scheduleUnloadIfConfigured() }
+        let samples = try AudioProcessor.loadAudioAsFloatArray(fromPath: fileURL.path)
+        return try await transcribeChunked(kit, samples)
+    }
+
+    func transcribeMeetingFile(fileURL: URL, engine: String) async throws -> [SpokenSegment] {
+        await acquireDecode()
+        defer { releaseDecode() }
+        try Task.checkCancellation()
+        let kit = engine == "parakeet" ? nil : try await ensureLoaded()
         let samples = try AudioProcessor.loadAudioAsFloatArray(fromPath: fileURL.path)
         return try await transcribeChunked(kit, samples)
     }

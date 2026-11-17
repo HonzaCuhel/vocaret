@@ -316,7 +316,7 @@ public final class DictationController {
 
     /// Soniox accepts up to 10,000 context characters. Leave margin for JSON
     /// and future context fields while keeping user vocabulary order stable.
-    private static func sonioxTerms(from terms: [String]) -> [String] {
+    static func sonioxTerms(from terms: [String]) -> [String] {
         var result: [String] = []
         var bytes = 0
         for term in terms {
@@ -526,7 +526,7 @@ public final class DictationController {
                 if shouldClean {
                     HUD.shared.updatePartial(text)
                     HUD.shared.update(cleanupModel == "gpt-5-nano"
-                        ? L("Formatting with GPT-5 nano…")
+                        ? L("Formatting with GPT-5.4 nano…")
                         : L("Cleaning with local AI…"))
                     cleanup = { await DictationCleanup.process($0, model: cleanupModel) }
                 } else {

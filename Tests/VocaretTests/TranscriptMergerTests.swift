@@ -3,6 +3,39 @@ import XCTest
 
 final class TranscriptMergerTests: XCTestCase {
 
+    func testKeepsDistinctPeopleOnTheSameSystemTrack() {
+        let first = Speaker.participant(source: .system, id: "1")
+        let second = Speaker.participant(source: .system, id: "2")
+        let turns = TranscriptMerger.merge(mine: [], theirs: [
+            SpokenSegment(start: 0, end: 1, text: "Proposal", speaker: first),
+            SpokenSegment(start: 1, end: 2, text: "Disagree", speaker: second),
+            SpokenSegment(start: 2, end: 3, text: "Revision", speaker: first),
+        ])
+        XCTAssertEqual(turns.map(\.speaker), [first, second, first])
+        XCTAssertEqual(turns.map(\.text), ["Proposal", "Disagree", "Revision"])
+    }
+
+    func testSpeakerNumbersAreScopedToAudioSource() {
+        let microphone = Speaker.participant(source: .microphone, id: "1")
+        let system = Speaker.participant(source: .system, id: "1")
+        XCTAssertNotEqual(microphone, system)
+        XCTAssertNotEqual(microphone.label, system.label)
+        XCTAssertTrue(microphone.isMicrophone)
+        XCTAssertFalse(system.isMicrophone)
+    }
+
+    func testUnknownSpeakerIsNotAssignedToThePreviousPerson() {
+        let known = Speaker.participant(source: .system, id: "1")
+        let unknown = Speaker.unidentified(source: .system)
+        let turns = TranscriptMerger.merge(mine: [], theirs: [
+            SpokenSegment(start: 0, end: 1, text: "Known", speaker: known),
+            SpokenSegment(start: 1, end: 2, text: "Uncertain", speaker: unknown),
+        ])
+        XCTAssertEqual(turns.count, 2)
+        XCTAssertEqual(turns.last?.speaker, unknown)
+        XCTAssertTrue(TranscriptMerger.markdown(turns: turns).contains("Unidentified"))
+    }
+
     private func seg(_ start: Double, _ end: Double, _ text: String) -> SpokenSegment {
         SpokenSegment(start: start, end: end, text: text)
     }

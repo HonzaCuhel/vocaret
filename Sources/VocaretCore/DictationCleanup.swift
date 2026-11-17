@@ -38,7 +38,8 @@ enum DictationCleanup {
                 return DictationCleanupResult(text: text, failure: .unavailable)
             }
             return await OpenAIDictationCleaner.shared.processDictation(
-                text, apiKey: key, vocabulary: Vocabulary.shared.terms
+                text, apiKey: key, vocabulary: Vocabulary.shared.terms,
+                confirmedAliases: Vocabulary.shared.learnedCorrections
             )
         } catch {
             Log.warn("OpenAI dictation cleanup skipped: \(error.localizedDescription)")

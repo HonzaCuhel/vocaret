@@ -289,7 +289,7 @@ struct SettingsView: View {
                             }
                         }
                     }
-                    Text(L("Soniox streams dictation audio to the selected region. The key stays in protected storage on this Mac; local fallback is automatic."))
+                    Text(L("Soniox streams dictation and meeting audio to the selected region. Meetings recognize individual speakers; microphone and call audio use separate streams. The key stays in protected storage on this Mac."))
                         .font(.caption).foregroundStyle(.secondary)
                 } else if settings.asrEngine == "whisper" {
                     Picker(L("Speech model"), selection: $settings.whisperModel) {
@@ -313,14 +313,15 @@ struct SettingsView: View {
                 }
             }
             Section(L("AI cleanup")) {
-                Toggle(L("Clean dictation with AI (adds ~1–2 s)"), isOn: $settings.cleanDictation)
-                if settings.cleanDictation {
-                    Picker(L("Dictation formatter"), selection: $settings.dictationCleanupModel) {
+                Toggle(L("Clean dictation with AI"), isOn: $settings.cleanDictation)
+                Toggle(L("Structure meeting notes with AI"), isOn: $settings.cleanMeetings)
+                if settings.cleanDictation || settings.cleanMeetings {
+                    Picker(L("AI model for dictation and meeting notes"), selection: $settings.dictationCleanupModel) {
                         Text(L("Local Qwen3 4B")).tag("local")
-                        Text("GPT-5 nano").tag("gpt-5-nano")
+                        Text("OpenAI nano").tag("gpt-5-nano")
                     }
                     Text(settings.dictationCleanupModel == "gpt-5-nano"
-                         ? L("Fast cloud formatting. Transcript text is sent to OpenAI; audio is not.")
+                         ? L("Dictation: GPT-5.4 nano. Meeting notes: GPT-5 nano. Only text is sent to OpenAI.")
                          : L("Private local formatting. Requires the optional 2.4 GB model."))
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -347,10 +348,12 @@ struct SettingsView: View {
                                 }
                             }
                         }
-                        LabeledContent(L("API price"), value: "$0.05 / 1M input · $0.40 / 1M output tokens")
+                        LabeledContent(L("Dictation API price"), value: "$0.20 / 1M input · $1.25 / 1M output tokens")
+                            .font(.caption)
+                        LabeledContent(L("Meeting API price"), value: "$0.05 / 1M input · $0.40 / 1M output tokens")
                             .font(.caption)
                         HStack {
-                            Text(L("The key stays in protected storage. If OpenAI is unavailable or the key is missing, Vocaret inserts the original transcript."))
+                            Text(L("The key stays in protected storage. If OpenAI is unavailable, dictation keeps the original text and meeting notes keep the raw transcript. Vocaret does not switch to a local model."))
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                             Spacer()
@@ -359,11 +362,12 @@ struct SettingsView: View {
                         }
                     }
                 }
-                Toggle(L("Structure meeting notes with AI"), isOn: $settings.cleanMeetings)
-                HStack {
-                    Circle().fill(model.llmAvailable ? Color.green : Color.orange).frame(width: 8, height: 8)
-                    Text(model.llmAvailable ? L("llama-server installed") : L("Not installed — run scripts/setup_llm.sh in the project folder"))
-                        .font(.caption).foregroundStyle(.secondary)
+                if settings.dictationCleanupModel == "local" {
+                    HStack {
+                        Circle().fill(model.llmAvailable ? Color.green : Color.orange).frame(width: 8, height: 8)
+                        Text(model.llmAvailable ? L("llama-server installed") : L("Not installed — run scripts/setup_llm.sh in the project folder"))
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
                 }
             }
             Section(L("Vocabulary")) {
@@ -471,14 +475,14 @@ struct SettingsView: View {
     }
 
     private var dataFlowDescription: String {
-        if settings.asrEngine == "soniox", settings.cleanDictation,
+        if settings.asrEngine == "soniox", settings.cleanDictation || settings.cleanMeetings,
            settings.dictationCleanupModel == "gpt-5-nano" {
-            return L("Dictation audio is sent to Soniox, then transcript text is sent to OpenAI. History and meetings stay on this Mac.")
+            return L("Dictation and meeting audio go to Soniox. Enabled AI formatting and meeting notes send transcript text to OpenAI. Saved history remains on this Mac.")
         }
         if settings.asrEngine == "soniox" {
-            return L("Live dictation audio is sent to your selected Soniox region. History, meetings, and local cleanup remain on this Mac.")
+            return L("Dictation and meeting audio go to your selected Soniox region. Saved history and local AI notes remain on this Mac.")
         }
-        if settings.cleanDictation, settings.dictationCleanupModel == "gpt-5-nano" {
+        if settings.cleanDictation || settings.cleanMeetings, settings.dictationCleanupModel == "gpt-5-nano" {
             return L("Audio stays on this Mac. After local transcription, transcript text is sent to OpenAI for formatting.")
         }
         return L("Local speech engines keep audio on this Mac. See PRIVACY.md for the exact details.")

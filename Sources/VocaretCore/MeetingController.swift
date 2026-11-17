@@ -1,7 +1,7 @@
 import AppKit
 
-/// Records both sides of a meeting (mic = Me, system audio = Them), then
-/// transcribes, merges, optionally structures with the local LLM, and saves
+/// Records both sides of a meeting, using local source labels or Soniox voice
+/// diarization, then structures with the selected AI provider and saves
 /// a Markdown file to ~/Documents/Vocaret/Meetings.
 @MainActor
 public final class MeetingController {
@@ -27,9 +27,9 @@ public final class MeetingController {
     private var systemURL: URL?
     private var startedAt: Date?
     private var isStarting = false
-    private var liveSession: MeetingTranscriptionSession?
+    private var liveSession: (any MeetingSession)?
     private var generation = 0
-    private var recordingEngine = "whisper"
+    private var recordingOptions = MeetingProcessingOptions(settings: .shared)
 
     public init() {}
 
@@ -86,8 +86,10 @@ public final class MeetingController {
         (for example Germany) recording a private conversation without consent \
         is a criminal offence. You are responsible for obtaining consent.
 
-        Vocaret keeps the transcript on this Mac and deletes the raw audio unless \
-        you turn that off.
+        Vocaret saves the transcript on this Mac and deletes raw audio after successful \
+        transcription unless you keep it. With Soniox selected, both audio tracks are \
+        streamed to Soniox for speaker recognition. GPT-5 nano meeting notes send the \
+        transcript text to OpenAI when that model is selected.
         """
         alert.alertStyle = .warning
         alert.addButton(withTitle: "I will get consent")
@@ -118,6 +120,27 @@ public final class MeetingController {
             }
             guard state == .idle else { return }
 
+            let settings = SettingsStore.shared
+            let options = MeetingProcessingOptions(settings: settings)
+            let configuration: SonioxConfiguration?
+            if options.usesCloudSpeech {
+                do {
+                    guard let key = try await AsyncAPIKeyAccess.shared.load(.soniox) else {
+                        HUD.shared.flash(L("Add a Soniox API key in Settings before recording a cloud meeting"), seconds: 5)
+                        return
+                    }
+                    configuration = SonioxConfiguration(
+                        apiKey: key, region: SonioxRegion(rawValue: settings.sonioxRegion) ?? .eu,
+                        languageHints: settings.language == "auto" ? settings.autoLanguages : [settings.language],
+                        terms: DictationController.sonioxTerms(from: Vocabulary.shared.terms),
+                        enableSpeakerDiarization: true
+                    )
+                } catch {
+                    HUD.shared.flash(L("Could not read the Soniox key — reconnect in Settings"), seconds: 5)
+                    return
+                }
+            } else { configuration = nil }
+
             let timestamp = Self.timestampFormatter.string(from: Date())
             let recordingsDir = SettingsStore.shared.recordingsDir
             let micURL = recordingsDir.appendingPathComponent("\(timestamp)-mic.wav")
@@ -125,34 +148,43 @@ public final class MeetingController {
 
             generation += 1
             let owner = generation
-            recordingEngine = SettingsStore.shared.asrEngine == "parakeet" ? "parakeet" : "whisper"
-            let engine = recordingEngine
+            recordingOptions = options
+            let engine = options.speechEngine
             AppModel.shared.liveMeetingTurns = []
-            AppModel.shared.meetingStatus = L("Preparing local speech model…")
-            let session = MeetingTranscriptionSession(
-                prepare: {
-                    await Transcriber.shared.beginMeeting(engine: engine)
-                    await MainActor.run {
-                        guard self.generation == owner, self.state == .recording else { return }
-                        AppModel.shared.meetingStatus = L("Listening — speech appears after a short pause")
+            AppModel.shared.meetingStatus = options.usesCloudSpeech
+                ? L("Connecting to Soniox · Recognizing speakers…") : L("Preparing local speech model…")
+            let onUpdate: @Sendable (MeetingTranscriptionResult) async -> Void = { result in
+                await MainActor.run {
+                    guard self.generation == owner, self.state != .idle else { return }
+                    AppModel.shared.liveMeetingTurns = result.turns
+                    if result.needsRecovery {
+                        AppModel.shared.meetingStatus = L("Recording safely — remaining speech will be recovered after finishing")
+                    } else if options.usesCloudSpeech {
+                        AppModel.shared.meetingStatus = L("Listening · Soniox speaker recognition")
                     }
-                },
-                decode: { samples, offset in
-                    try await Transcriber.shared.transcribeMeetingChunk(samples: samples, offset: offset, engine: engine)
-                },
-                onUpdate: { result in
-                    await MainActor.run {
-                        guard self.generation == owner, self.state != .idle else { return }
-                        AppModel.shared.liveMeetingTurns = result.turns
-                        if result.needsRecovery {
-                            AppModel.shared.meetingStatus = L("Recording safely — remaining speech will be recovered after finishing")
-                        }
-                        if let turn = result.turns.last {
-                            HUD.shared.updatePartial("\(L(turn.speaker.label)): \(turn.text)")
-                        }
+                    if let turn = result.turns.last {
+                        HUD.shared.updatePartial("\(turn.speaker.localizedLabel): \(turn.text)")
                     }
                 }
-            )
+            }
+            let session: any MeetingSession
+            if let configuration {
+                session = SonioxMeetingSession(configuration: configuration, onUpdate: onUpdate)
+            } else {
+                session = MeetingTranscriptionSession(
+                    prepare: {
+                        await Transcriber.shared.beginMeeting(engine: engine)
+                        await MainActor.run {
+                            guard self.generation == owner, self.state == .recording else { return }
+                            AppModel.shared.meetingStatus = L("Listening — speech appears after a short pause")
+                        }
+                    },
+                    decode: { samples, offset in
+                        try await Transcriber.shared.transcribeMeetingChunk(samples: samples, offset: offset, engine: engine)
+                    },
+                    onUpdate: onUpdate
+                )
+            }
             liveSession = session
             let tap = SystemAudioTap()
             tap.onSamples = { session.append($0, speaker: .them) }
@@ -192,9 +224,9 @@ public final class MeetingController {
             SoundPlayer.play(.start)
             state = .recording
             MediaPauser.shared.pauseIfPlaying()
-            if SettingsStore.shared.cleanMeetings { LLMCleaner.shared.warmUp() }
+            if options.shouldWarmLocalNotes { LLMCleaner.shared.warmUp() }
             HUD.shared.beginRecording(
-                status: L("Live meeting · On this Mac"),
+                status: L(options.usesCloudSpeech ? "Live meeting · Soniox · Speaker recognition" : "Live meeting · On this Mac"),
                 hint: "\(SettingsStore.shared.meetingHotkeyLabel) · \(L("Press to finish"))",
                 level: { [weak micRecorder] in micRecorder?.level ?? 0 }
             )
@@ -216,6 +248,7 @@ public final class MeetingController {
             systemConversionFailed = tap.conversionFailures > 0
         }
         let session = liveSession
+        let options = recordingOptions
         liveSession = nil
         SoundPlayer.play(.stop)
         state = .processing
@@ -236,14 +269,23 @@ public final class MeetingController {
             var result = await session?.finish() ?? MeetingTranscriptionResult(failedSpeakers: [.me, .them])
             if systemConversionFailed { result.failedSpeakers.insert(.them) }
             let needsRecovery = result.needsRecovery
+            let diarizationUnavailable = options.usesCloudSpeech && needsRecovery
+            var localSpeechLease = !options.usesCloudSpeech && session != nil
+            if options.usesCloudSpeech && needsRecovery {
+                await Transcriber.shared.beginMeeting(engine: "whisper")
+                localSpeechLease = true
+            }
             var recoveryFailed = systemCaptureFailed || micCaptureFailed
             for speaker in [Speaker.me, .them] where result.failedSpeakers.contains(speaker) {
                 // A damaged WAV must not replace the useful live prefix.
                 if (speaker == .me && micCaptureFailed) || (speaker == .them && systemCaptureFailed) { continue }
                 AppModel.shared.meetingStatus = L("Recovering remaining speech from the recording…")
                 do {
-                    let segments = try await Transcriber.shared.transcribe(fileURL: speaker == .me ? micURL : systemURL)
-                    result.recover(speaker, from: segments)
+                    let segments = try await Transcriber.shared.transcribeMeetingFile(
+                        fileURL: speaker == .me ? micURL : systemURL,
+                        engine: options.usesCloudSpeech ? "whisper" : options.speechEngine
+                    )
+                    if !result.recover(speaker, from: segments) { recoveryFailed = true }
                 } catch {
                     recoveryFailed = true
                     Log.error("Meeting recovery failed for \(speaker.label): \(error.localizedDescription)")
@@ -251,7 +293,7 @@ public final class MeetingController {
             }
             // The live worker may finish early on overflow. Keep its model
             // lease until recovery is complete, then release it exactly once.
-            if session != nil { await Transcriber.shared.endMeeting() }
+            if localSpeechLease { await Transcriber.shared.endMeeting() }
             if needsRecovery { Log.info("Meeting recovery completed; incomplete=\(recoveryFailed)") }
             let mine = result.mine
             let theirs = result.theirs
@@ -269,14 +311,23 @@ public final class MeetingController {
 
             var body = rawTranscript
             var structuringFailed = false
-            if SettingsStore.shared.cleanMeetings {
-                AppModel.shared.meetingStatus = L("Structuring notes with local LLM…")
-                HUD.shared.update(L("Structuring notes with local LLM…"))
-                if let structured = await LLMCleaner.shared.structureMeeting(markdownTranscript: rawTranscript) {
-                    body = structured + "\n\n---\n\n## Raw transcript\n\n" + rawTranscript
-                } else {
-                    structuringFailed = true
+            var structuringFailureDescription: String?
+            if options.notesEnabled {
+                let status = L(options.notesProvider == .gpt5Nano
+                    ? "Structuring notes with GPT-5 nano…" : "Structuring notes with local LLM…")
+                AppModel.shared.meetingStatus = status
+                HUD.shared.update(status)
+                let key = options.notesProvider == .gpt5Nano
+                    ? try? await AsyncAPIKeyAccess.shared.load(.openAI) : nil
+                let notes = await MeetingNotesGenerator.shared.generate(
+                    markdownTranscript: rawTranscript, provider: options.notesProvider, apiKey: key
+                )
+                if let structured = notes.markdown {
+                    body = (notes.isComplete ? "" : "> ⚠️ AI notes are incomplete. Consult the full transcript below.\n\n")
+                        + structured + "\n\n---\n\n## Raw transcript\n\n" + rawTranscript
                 }
+                structuringFailed = !notes.isComplete
+                structuringFailureDescription = notes.failure?.localizedDescription
             }
 
             var notes: [String] = []
@@ -287,7 +338,13 @@ public final class MeetingController {
                 notes.append("> ⚠️ System audio was silent for the whole meeting — check System Settings → Privacy & Security → Screen & System Audio Recording, and pause music players next time.")
             }
             if structuringFailed {
-                notes.append("> ⚠️ AI structuring failed (llama-server missing or error) — raw transcript only.")
+                notes.append("> ⚠️ \(structuringFailureDescription ?? "The selected AI provider could not complete the meeting notes.") The full available transcript is retained below.")
+            }
+            if diarizationUnavailable {
+                notes.append("> ⚠️ A Soniox track required local recovery. Recovered passages identify the audio source only; individual speakers could not be recovered.")
+            }
+            if options.usesCloudSpeech {
+                notes.append("> Speaker numbers are scoped to this meeting and audio source, not real names. Live voice attribution may contain errors or duplicate voices heard through both tracks.")
             }
 
             let document = """
@@ -333,10 +390,11 @@ public final class MeetingController {
     private func cancelLiveSession() {
         guard let session = liveSession else { return }
         liveSession = nil
+        let usesCloudSpeech = recordingOptions.usesCloudSpeech
         session.cancel()
         Task {
             _ = await session.finish()
-            await Transcriber.shared.endMeeting()
+            if !usesCloudSpeech { await Transcriber.shared.endMeeting() }
         }
     }
 

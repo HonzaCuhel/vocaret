@@ -42,11 +42,11 @@ enum WindowRenderer {
             // Fictional data only: verify the active meeting states without
             // microphone access, audio capture, disk transcripts or preferences.
             let sampleTurns = [
-                MergedTurn(speaker: .me, start: 3,
+                MergedTurn(speaker: .participant(source: .microphone, id: "1"), start: 3,
                            text: "Let's focus on the first release. The transcript should already be useful while we're still on the call."),
-                MergedTurn(speaker: .them, start: 14,
+                MergedTurn(speaker: .participant(source: .system, id: "1"), start: 14,
                            text: "Agreed. Keep the conversation easy to follow, and make it clear which parts are still being processed."),
-                MergedTurn(speaker: .me, start: 26,
+                MergedTurn(speaker: .participant(source: .system, id: "2"), start: 26,
                            text: "I'll check the live view today. We can review the saved notes together tomorrow.")
             ]
             for (name, appearance, state) in [
@@ -56,7 +56,7 @@ enum WindowRenderer {
             ] {
                 let panel = LiveMeetingPanel(
                     state: state, startedAt: Date().addingTimeInterval(-42), turns: sampleTurns,
-                    status: L(state == .recording ? "Listening to your microphone and call audio…" : "Finishing your transcript"),
+                    status: L(state == .recording ? "Listening · Soniox speaker recognition" : "Finishing your transcript"),
                     copy: { _ in }
                 )
                 let hosting = NSHostingView(rootView: panel)

@@ -103,6 +103,12 @@ public final class HUD {
         present()
     }
 
+    /// Explicitly hide until the user enables or opens the panel again.
+    func hideCompanion() {
+        SettingsStore.shared.showHUD = false
+        dismissCompanion()
+    }
+
     func dismissCompanion() {
         idleDismissal?.cancel()
         panel?.orderOut(nil)
