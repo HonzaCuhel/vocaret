@@ -2,6 +2,35 @@ import XCTest
 @testable import VocaretCore
 
 final class CleanupGuardTests: XCTestCase {
+    func testRemovingCzechHesitationKeepsAnEnglishPassageSafe() {
+        let request = "Please check the import and explain every change before you send anything to anyone."
+        let original = "No takže jako vlastně no, já jenom, chci říct, že jako v podstatě, no vlastně, prostě, takže já jako jenom, no vlastně, tedy tak nějak. " + request
+        XCTAssertTrue(CleanupGuard.isSafe(original: original, cleaned: request))
+    }
+
+    func testMarkdownHeadingsPreserveVersionsAndAmounts() {
+        XCTAssertFalse(CleanupGuard.isSafe(original: "30. června pošli report.", cleaned: "31. června pošli report."))
+        XCTAssertTrue(CleanupGuard.isSafe(
+            original: "Uprav import. Použij GPT-5.4 Mini. Sjednoť JSON.",
+            cleaned: "### 1. Uprav import\n\nPoužij **GPT-5.4 Mini**.\n\n### 2. Sjednoť JSON"
+        ))
+        XCTAssertFalse(CleanupGuard.isSafe(
+            original: "Uprav import. Použij GPT-5.4 Mini. Sjednoť JSON.",
+            cleaned: "### 1. Uprav import\n\nPoužij **GPT-5.5 Mini**.\n\n### 2. Sjednoť JSON"
+        ))
+    }
+
+    func testMarkdownListNumbersAreLayoutNotInventedAmounts() {
+        XCTAssertTrue(CleanupGuard.isSafe(
+            original: "Zkontroluj přihlášení a odhlášení.",
+            cleaned: "1. Zkontroluj přihlášení.\n2. Zkontroluj odhlášení."
+        ))
+        XCTAssertFalse(CleanupGuard.isSafe(
+            original: "Zkontroluj rozpočet 30 dolarů a termín.",
+            cleaned: "1. Zkontroluj rozpočet 300 dolarů.\n2. Zkontroluj termín."
+        ))
+    }
+
 
     func testAcceptsExplicitBudgetCorrectionDespiteLargeRemoval() {
         XCTAssertTrue(CleanupGuard.isSafe(

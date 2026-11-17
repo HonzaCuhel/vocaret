@@ -92,6 +92,16 @@ final class CompanionTests: XCTestCase {
         XCTAssertFalse((codex + claude).contains(where: { $0.contains("dangerously") }))
     }
 
+    func testRunnerCanRepeatShortProcessExitsWithoutAnUnboundedWait() async throws {
+        let executable = directory.appendingPathComponent("quick-agent")
+        try "#!/bin/sh\nprintf 'done\\n'\n".write(to: executable, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
+        for _ in 0..<10 {
+            let reply = try await CompanionAgentRunner.run(agent: .claude, executable: executable, prompt: "fixture", timeout: 2)
+            XCTAssertEqual(reply, "done")
+        }
+    }
+
     func testRunnerHandlesStdinAndExitFailure() async throws {
         let executable = directory.appendingPathComponent("fake-agent")
         try "#!/bin/sh\ncat\n".write(to: executable, atomically: true, encoding: .utf8)

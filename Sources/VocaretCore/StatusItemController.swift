@@ -60,6 +60,9 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
         let companion = NSMenuItem(title: L("Show floating panel"), action: #selector(showCompanion), keyEquivalent: "")
         companion.target = self
         menu.addItem(companion)
+        let hidePanel = NSMenuItem(title: L("Hide floating panel"), action: #selector(hideCompanion), keyEquivalent: "")
+        hidePanel.target = self
+        menu.addItem(hidePanel)
 
         // Shown only while Accessibility is missing — the one condition that
         // makes dictation look silently broken.
@@ -80,7 +83,7 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
         meetingItem.action = #selector(toggleMeeting)
         menu.addItem(meetingItem)
 
-        cancelItem.title = L("Cancel Recording")
+        cancelItem.title = L("Cancel")
         cancelItem.target = self
         cancelItem.action = #selector(cancelRecording)
         menu.addItem(cancelItem)
@@ -212,7 +215,7 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
             + "  (\(settings.dictationHotkeyLabel))"
         meetingItem.title = (meeting.state == .recording ? L("Stop Meeting & Transcribe") : L("Start Meeting Transcription"))
             + "  (\(settings.meetingHotkeyLabel))"
-        cancelItem.isHidden = dictation.state != .recording && meeting.state != .recording
+        cancelItem.isHidden = !CompanionModel.shared.capturing
 
         for item in statusItem.menu?.items ?? [] {
             if let code = item.representedObject as? String {
@@ -246,6 +249,7 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
 
     // MARK: - Actions
 
+    @objc private func hideCompanion() { HUD.shared.hideCompanion() }
     @objc private func showCompanion() { HUD.shared.showCompanion() }
 
     @objc private func toggleDictation() { dictation.toggle() }

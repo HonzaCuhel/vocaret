@@ -26,14 +26,22 @@ When a Soniox key is connected, Settings also calls the selected region's
 cost, request count, and processed audio duration. That request sends the API
 key for authentication but no recording or transcript.
 
-With **GPT-5 nano selected for AI cleanup**, Vocaret sends the completed
+With **OpenAI nano selected for AI cleanup**, Vocaret sends the completed
 transcript text, the cleanup instructions, and your vocabulary terms to the
-OpenAI Responses API. It does not send audio. Requests use `store: false`,
-low reasoning effort, and a transcript-length-dependent request timeout of
-12–45 seconds. An error, timeout, empty response, or suspicious rewrite is
-discarded; the original transcript remains available and an on-screen notice
-identifies the unformatted fallback. History, Copy Last, and insertion use the
-same final result after cleanup and personal spelling corrections.
+OpenAI Responses API using GPT-5.4 nano. It does not send audio. Requests use
+`store: false`. Interactive dictation uses one compact plain-text request,
+low reasoning, up to 4,096 output tokens and a total cleanup deadline of 12–45
+seconds based on text length. **Insert without formatting** stops waiting and
+uses the raw transcript immediately. An error, timeout, empty response, or
+suspicious rewrite is discarded; an on-screen notice identifies the unformatted
+fallback. There are no serial repair or meaning-review requests on this
+interactive path. Text containing repair cues such as “actually” must retain
+its words and order or the output is discarded, including otherwise harmless
+repetition removal. History, Copy Last, and insertion use the same final result
+after cleanup and personal spelling corrections. A conservative local language
+check can reject a confident language change; it cannot guarantee that speech
+recognition detected the right language.
+
 Review the [OpenAI API data controls](https://developers.openai.com/api/docs/guides/your-data)
 before opting in.
 
@@ -67,16 +75,34 @@ access.
 
 ## Live meetings
 
-Meeting transcription always runs locally, including when Soniox is selected
-for dictation. Microphone and system audio are transcribed in short passages
-during the call. The microphone WAV is stored as 16 kHz mono; system audio keeps
-its native format. The live audio queue is capped at 120 seconds of mono samples
-combined across both tracks (about 7.7 MB), plus the current utterances.
+Meeting transcription follows the selected speech engine. Whisper and Parakeet
+stay local and distinguish the microphone from system audio. With Soniox selected,
+both tracks stream to the selected Soniox region over separate continuous
+connections for live speaker diarization. Each connection is a separate billable
+transcription stream. Speaker numbers identify voices within that track and
+meeting; they are not real names or voice identities stored across meetings.
+Unknown voices remain unidentified. Acoustic echo can appear in both tracks;
+headphones reduce this duplication.
+
+The microphone WAV is stored as 16 kHz mono; system audio keeps its native format.
+The live audio queue is capped at 120 seconds of mono samples combined across
+both tracks (about 7.7 MB), plus the current utterances or network frame.
 
 If the queue fills or a passage fails, Vocaret retries from the recording after
-the call. If recovery or saving fails, the raw WAV files remain on disk even
+the call. Cancelling while a meeting is being finalized or its notes are being generated also
+keeps the WAV files for recovery. If recovery or saving fails, the raw WAV files remain on disk even
 when automatic deletion is enabled. A partial transcript is marked as incomplete.
-Optional meeting summaries continue to use only the local LLM.
+When a cloud track is recovered locally, its text is retained but individual
+voice attribution is unavailable and the saved document says so. A cloud failure
+does not send the recording to another provider.
+
+Meeting notes use the same AI model selector as dictation. Selecting OpenAI nano
+sends the speaker-labeled transcript, in bounded parts for long meetings, to
+OpenAI's Responses API with `store: false`. Audio is not sent to OpenAI. Partial
+summaries may be sent back to that same provider to produce a final summary.
+When the selected provider fails, Vocaret preserves the raw transcript and marks
+the summary incomplete; it does not silently switch to local Qwen. Local Qwen is
+used only when selected. Turning off meeting notes skips both providers.
 
 ## What is stored on your Mac, and where
 

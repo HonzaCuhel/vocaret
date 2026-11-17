@@ -20,20 +20,28 @@ enum DictationFinalizer {
         correct: (String) -> String
     ) async throws -> FinalizedDictation {
         try Task.checkCancellation()
-        let result = await cleanup?(rawText)
+        var result = await cleanup?(rawText)
         try Task.checkCancellation()
+        // Check against the ASR source too: a formatter may have applied
+        // personal aliases before its own validation.
+        if let output = result, output.isFormatted,
+           CleanupGuard.changesConfidentLanguage(original: rawText, cleaned: output.text) {
+            result = DictationCleanupResult(text: rawText, failure: .rejected)
+        }
         if let result, result.isFormatted {
             learnCorrections(rawText, result.text)
         }
-        let text = correct(result?.text ?? rawText).trimmingCharacters(in: .whitespacesAndNewlines)
+        let corrected = correct(result?.text ?? rawText).trimmingCharacters(in: .whitespacesAndNewlines)
+        let languageChanged = CleanupGuard.changesConfidentLanguage(original: rawText, cleaned: corrected)
+        let text = languageChanged ? rawText.trimmingCharacters(in: .whitespacesAndNewlines) : corrected
         return FinalizedDictation(
             record: DictationRecord(
                 date: Date(), text: text,
                 recordingSeconds: recordingSeconds,
                 transcriptionSeconds: Date().timeIntervalSince(transcriptionStarted),
-                model: model, cleaned: result?.isFormatted == true
+                model: model, cleaned: !languageChanged && result?.isFormatted == true
             ),
-            cleanupFailure: result?.failure
+            cleanupFailure: languageChanged ? .rejected : result?.failure
         )
     }
 

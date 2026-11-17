@@ -74,5 +74,14 @@ final class MeetingTranscriptionSessionTests: XCTestCase {
         XCTAssertFalse(result.needsRecovery)
     }
 
+    func testEmptyRecoveryCannotEraseKnownSpeech() {
+        let known = SpokenSegment(start: 1, end: 2, text: "Known speech",
+                                  speaker: .participant(source: .system, id: "2"))
+        var result = MeetingTranscriptionResult(theirs: [known], failedSpeakers: [.them])
+        XCTAssertFalse(result.recover(.them, from: []))
+        XCTAssertEqual(result.theirs, [known])
+        XCTAssertTrue(result.needsRecovery)
+    }
+
     enum TestError: Error { case failed }
 }

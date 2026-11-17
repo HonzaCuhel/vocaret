@@ -6,13 +6,17 @@ struct MeetingTranscriptionResult: Sendable {
     var failedSpeakers: Set<Speaker> = []
     var trackOffsets: [Speaker: Double] = [:]
 
-    mutating func recover(_ speaker: Speaker, from segments: [SpokenSegment]) {
+    @discardableResult
+    mutating func recover(_ speaker: Speaker, from segments: [SpokenSegment]) -> Bool {
+        let existing = speaker == .me ? mine : theirs
+        guard !segments.isEmpty || existing.isEmpty else { return false }
         let offset = trackOffsets[speaker] ?? 0
         let aligned = segments.map {
-            SpokenSegment(start: $0.start + offset, end: $0.end + offset, text: $0.text)
+            SpokenSegment(start: $0.start + offset, end: $0.end + offset, text: $0.text, speaker: $0.speaker)
         }
         if speaker == .me { mine = aligned } else { theirs = aligned }
         failedSpeakers.remove(speaker)
+        return true
     }
     var needsRecovery: Bool { !failedSpeakers.isEmpty }
     var turns: [MergedTurn] { TranscriptMerger.merge(mine: mine, theirs: theirs) }
@@ -87,7 +91,13 @@ final class MeetingAudioBuffer: @unchecked Sendable {
 
 /// A single worker decodes both tracks sequentially. Inference runs off the
 /// main actor, while capture continues into the bounded stream and WAV files.
-final class MeetingTranscriptionSession: Sendable {
+protocol MeetingSession: Sendable {
+    func append(_ samples: [Float], speaker: Speaker)
+    func finish() async -> MeetingTranscriptionResult
+    func cancel()
+}
+
+final class MeetingTranscriptionSession: MeetingSession {
     typealias Decode = @Sendable ([Float], Double) async throws -> [SpokenSegment]
     private let buffer: MeetingAudioBuffer
     private let task: Task<MeetingTranscriptionResult, Never>

@@ -95,10 +95,10 @@ struct CompanionView: View {
                         LazyVStack(alignment: .leading, spacing: 10) {
                             if companion.mode == .meeting {
                                 if app.liveMeetingTurns.isEmpty {
-                                    emptyState("person.2.wave.2", "Both sides. One conversation.", "Microphone + system audio · Transcribed on this Mac")
+                                    emptyState("person.2.wave.2", "Both sides. One conversation.", "Microphone + system audio · Live transcript")
                                 }
                                 ForEach(Array(app.liveMeetingTurns.enumerated()), id: \.offset) { _, turn in
-                                    bubble(role: L(turn.speaker.label), text: turn.text, mine: turn.speaker == .me)
+                                    bubble(role: turn.speaker.localizedLabel, text: turn.text, mine: turn.speaker.isMicrophone)
                                 }
                             } else {
                                 if companion.messages.isEmpty {
@@ -115,7 +115,7 @@ struct CompanionView: View {
                     .frame(height: 190)
                     .onAppear { proxy.scrollTo("end", anchor: .bottom) }
                     .onChange(of: companion.messages.count) { _, _ in proxy.scrollTo("end", anchor: .bottom) }
-                    .onChange(of: app.liveMeetingTurns.count) { _, _ in proxy.scrollTo("end", anchor: .bottom) }
+                    .onChange(of: app.liveMeetingTurns) { _, _ in proxy.scrollTo("end", anchor: .bottom) }
                 }
                 if companion.mode == .chat {
                     HStack(spacing: 8) {
@@ -178,7 +178,10 @@ struct CompanionView: View {
                         .frame(width: 36, height: 36)
                         .background(recording ? Color.red : Color.cyan, in: Circle())
                 }.disabled(processing || companion.busy).help(L(recording ? "Finish recording" : "Start recording"))
-                Button { HUD.shared.dismissCompanion() } label: { Image(systemName: "minus").foregroundStyle(.secondary) }
+                Button { HUD.shared.hideCompanion() } label: {
+                    Label(L("Hide panel"), systemImage: "xmark")
+                        .font(.caption).padding(6).contentShape(Rectangle())
+                }
                     .help(L("Hide panel (recording continues)"))
             }
             if !recorder.partialText.isEmpty {
@@ -186,6 +189,13 @@ struct CompanionView: View {
             }
             if !recorder.presentedStatusText.isEmpty {
                 Text(recorder.presentedStatusText).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+            }
+            if !recorder.hintText.isEmpty {
+                Text(recorder.hintText).font(.caption2).foregroundStyle(.secondary).lineLimit(2)
+            }
+            if let insertWithoutFormatting = recorder.insertWithoutFormatting {
+                Button(L("Insert without formatting"), action: insertWithoutFormatting)
+                    .font(.caption)
             }
             if recording, let status = companion.mediaStatus {
                 Text(status).font(.system(size: 10)).foregroundStyle(.orange).lineLimit(2)

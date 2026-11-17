@@ -1,4 +1,5 @@
 import Foundation
+import NaturalLanguage
 
 /// Decides whether an LLM "cleanup" is actually a cleanup.
 ///
@@ -27,6 +28,9 @@ public enum CleanupGuard {
         guard !cleanedWords.isEmpty else { return false }
 
         if Double(cleanedWords.count) > Double(originalWords.count) * maximumGrowth + 1 {
+            return false
+        }
+        if originalWords != cleanedWords, changesConfidentLanguage(original: original, cleaned: cleaned) {
             return false
         }
 
@@ -67,6 +71,37 @@ public enum CleanupGuard {
         text.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: Locale(identifier: "en_US"))
             .components(separatedBy: CharacterSet.alphanumerics.inverted)
             .filter { !$0.isEmpty }
+    }
+
+    /// Related languages can share enough words to pass the lexical gate.
+    /// Reject a confident language change only when the source has enough
+    /// context and no independently recognized passage in another language.
+    static func changesConfidentLanguage(original: String, cleaned: String) -> Bool {
+        guard original != cleaned,
+              original.split(whereSeparator: \.isWhitespace).count >= 12,
+              let source = confidentLanguage(original),
+              let output = confidentLanguage(cleaned), source != output else { return false }
+
+        let sentences = NLTokenizer(unit: .sentence)
+        sentences.string = original
+        var mixed = false
+        sentences.enumerateTokens(in: original.startIndex..<original.endIndex) { range, _ in
+            if let language = confidentLanguage(String(original[range])), language != source {
+                mixed = true
+                return false
+            }
+            return true
+        }
+        return !mixed
+    }
+
+    private static func confidentLanguage(_ text: String) -> NLLanguage? {
+        guard text.split(whereSeparator: \.isWhitespace).count >= 6 else { return nil }
+        let recognizer = NLLanguageRecognizer()
+        recognizer.processString(text)
+        guard let (language, confidence) = recognizer.languageHypotheses(withMaximum: 1).first,
+              confidence >= 0.98 else { return nil }
+        return language
     }
 
     // Multiword cues avoid treating ordinary negation, "actually", "also", or

@@ -84,7 +84,8 @@ public final class SettingsStore: @unchecked Sendable {
     }
 
     /// "local" (Qwen through llama.cpp) or "gpt-5-nano" (OpenAI Responses
-    /// API). Cleanup stays off until `cleanDictation` is enabled.
+    /// API provider; retained legacy preference value). Dictation uses GPT-5.4 nano;
+    /// meeting notes keep GPT-5 nano. Cleanup stays off until enabled.
     public var dictationCleanupModel: String {
         get {
             let value = defaults.string(forKey: Key.dictationCleanupModel)?.lowercased()

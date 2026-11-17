@@ -59,6 +59,7 @@ private actor OrderedSonioxWriter {
 actor SonioxTranscriber: LiveTranscriptionSession {
     private enum State {
         case idle
+        case starting
         case running
         case finishing
         case terminal
@@ -67,13 +68,17 @@ actor SonioxTranscriber: LiveTranscriptionSession {
     private let configuration: SonioxConfiguration
     private let transport: any SonioxTransport
     private let writer: OrderedSonioxWriter
+    private let startTimeout: Duration
     private let finalizationTimeout: Duration
     private let sleep: SonioxSleep
 
     private var state: State = .idle
     private var accumulator = SonioxTranscriptAccumulator()
+    private var diarization = SonioxDiarizationAccumulator()
     private var onPartial: (@Sendable (String) async -> Void)?
+    private var onDiarizedSegments: (@Sendable ([SonioxDiarizedSegment]) async -> Void)?
     private var lastPublishedPartial = ""
+    private var lastPublishedDiarization: [SonioxDiarizedSegment] = []
     private var receiveTask: Task<Void, Never>?
     private var timeoutTask: Task<Void, Never>?
     private var finishContinuation: CheckedContinuation<String, Error>?
@@ -82,6 +87,7 @@ actor SonioxTranscriber: LiveTranscriptionSession {
     init(
         configuration: SonioxConfiguration,
         transport: any SonioxTransport = URLSessionSonioxTransport(),
+        startTimeout: Duration = .seconds(15),
         finalizationTimeout: Duration = .seconds(5),
         sleep: @escaping SonioxSleep = { duration in
             try await ContinuousClock().sleep(for: duration)
@@ -90,33 +96,77 @@ actor SonioxTranscriber: LiveTranscriptionSession {
         self.configuration = configuration
         self.transport = transport
         writer = OrderedSonioxWriter(transport: transport)
+        self.startTimeout = startTimeout
         self.finalizationTimeout = finalizationTimeout
         self.sleep = sleep
     }
 
     func start(onPartial: @escaping @Sendable (String) async -> Void) async throws {
+        try await start(onPartial: onPartial, onDiarizedSegments: nil)
+    }
+
+    func start(
+        onPartial: @escaping @Sendable (String) async -> Void,
+        onDiarizedSegments: (@Sendable ([SonioxDiarizedSegment]) async -> Void)?
+    ) async throws {
+        try await withTaskCancellationHandler {
+            try await startWhileActive(onPartial: onPartial, onDiarizedSegments: onDiarizedSegments)
+        } onCancel: {
+            Task { await self.cancel() }
+        }
+    }
+
+    private func startWhileActive(
+        onPartial: @escaping @Sendable (String) async -> Void,
+        onDiarizedSegments: (@Sendable ([SonioxDiarizedSegment]) async -> Void)?
+    ) async throws {
         guard state == .idle else { throw SonioxTranscriberError.invalidState }
+        state = .starting
+
+        // A WebSocket handshake/configuration send must not keep a meeting in
+        // "Starting" forever. Closing the transport unblocks its pending send.
+        timeoutTask = Task { [weak self, startTimeout] in
+            do { try await ContinuousClock().sleep(for: startTimeout) } catch { return }
+            guard !Task.isCancelled else { return }
+            await self?.startDidTimeOut()
+        }
+        defer {
+            timeoutTask?.cancel()
+            timeoutTask = nil
+        }
 
         do {
+            try Task.checkCancellation()
             let configurationData = try configuration.data()
             guard let configurationText = String(data: configurationData, encoding: .utf8) else {
                 throw SonioxTranscriberError.invalidResponse
             }
             try await transport.connect(to: configuration.region.webSocketURL)
+            try validateStartingState()
             try await writer.send(.text(configurationText))
-        } catch let error as SonioxTranscriberError {
-            await transport.close()
-            throw error
+            try validateStartingState()
         } catch {
-            await transport.close()
-            throw SonioxTranscriberError.transport(error.localizedDescription)
+            if case .failure(let terminalError) = terminalResult { throw terminalError }
+            let mapped = error as? SonioxTranscriberError ?? (
+                Task.isCancelled || error is CancellationError
+                    ? .cancelled : .transport(error.localizedDescription)
+            )
+            await complete(.failure(mapped))
+            throw mapped
         }
 
         self.onPartial = onPartial
+        self.onDiarizedSegments = onDiarizedSegments
         state = .running
         receiveTask = Task { [weak self] in
             await self?.receiveLoop()
         }
+    }
+
+    private func validateStartingState() throws {
+        if case .failure(let error) = terminalResult { throw error }
+        try Task.checkCancellation()
+        guard state == .starting else { throw SonioxTranscriberError.invalidState }
     }
 
     func append(_ samples: [Float]) async throws {
@@ -153,6 +203,14 @@ actor SonioxTranscriber: LiveTranscriptionSession {
 
     func detectedLanguage() -> String? {
         accumulator.detectedLanguage
+    }
+
+    func diarizedSegments() -> [SonioxDiarizedSegment] {
+        diarization.visibleSegments
+    }
+
+    func finalizedDiarizedSegments() -> [SonioxDiarizedSegment] {
+        diarization.finalizedSegments
     }
 
     private func finishWhileActive() async throws -> String {
@@ -229,13 +287,24 @@ actor SonioxTranscriber: LiveTranscriptionSession {
             }
 
             let update = accumulator.consume(response)
+            // A marker only acknowledges our stop request while finishing.
+            // Capture this before callbacks, which can reenter the actor.
+            let shouldComplete = update.didFinalize && state == .finishing
+            if configuration.enableSpeakerDiarization {
+                diarization.consume(response)
+                let segments = diarization.visibleSegments
+                if segments != lastPublishedDiarization {
+                    lastPublishedDiarization = segments
+                    await onDiarizedSegments?(segments)
+                }
+            }
             if !update.visibleText.isEmpty,
                update.visibleText != lastPublishedPartial,
-               !update.didFinalize {
+               !shouldComplete {
                 lastPublishedPartial = update.visibleText
                 await onPartial?(update.visibleText)
             }
-            if update.didFinalize {
+            if shouldComplete {
                 await complete(.success(update.finalText))
                 return
             }
@@ -249,6 +318,11 @@ actor SonioxTranscriber: LiveTranscriptionSession {
     private func finalizationDidTimeOut() async {
         guard state == .finishing, terminalResult == nil else { return }
         await complete(.failure(.finalizationTimedOut))
+    }
+
+    private func startDidTimeOut() async {
+        guard state == .starting, terminalResult == nil else { return }
+        await complete(.failure(.transport("Timed out connecting to Soniox.")))
     }
 
     private func audioSendDidTimeOut() async {
@@ -265,6 +339,7 @@ actor SonioxTranscriber: LiveTranscriptionSession {
         receiveTask?.cancel()
         receiveTask = nil
         onPartial = nil
+        onDiarizedSegments = nil
         await writer.cancel()
         await transport.close()
 

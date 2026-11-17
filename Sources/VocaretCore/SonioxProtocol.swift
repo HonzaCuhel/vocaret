@@ -28,6 +28,21 @@ struct SonioxConfiguration: Sendable {
     let region: SonioxRegion
     let languageHints: [String]
     let terms: [String]
+    let enableSpeakerDiarization: Bool
+
+    init(
+        apiKey: String,
+        region: SonioxRegion,
+        languageHints: [String],
+        terms: [String],
+        enableSpeakerDiarization: Bool = false
+    ) {
+        self.apiKey = apiKey
+        self.region = region
+        self.languageHints = languageHints
+        self.terms = terms
+        self.enableSpeakerDiarization = enableSpeakerDiarization
+    }
 
     func data() throws -> Data {
         try JSONEncoder().encode(WireConfiguration(
@@ -39,6 +54,7 @@ struct SonioxConfiguration: Sendable {
             languageHints: languageHints,
             languageHintsStrict: !languageHints.isEmpty,
             enableLanguageIdentification: true,
+            enableSpeakerDiarization: enableSpeakerDiarization,
             context: Context(terms: terms)
         ))
     }
@@ -52,6 +68,7 @@ struct SonioxConfiguration: Sendable {
         let languageHints: [String]
         let languageHintsStrict: Bool
         let enableLanguageIdentification: Bool
+        let enableSpeakerDiarization: Bool
         let context: Context
 
         enum CodingKeys: String, CodingKey {
@@ -63,6 +80,7 @@ struct SonioxConfiguration: Sendable {
             case languageHints = "language_hints"
             case languageHintsStrict = "language_hints_strict"
             case enableLanguageIdentification = "enable_language_identification"
+            case enableSpeakerDiarization = "enable_speaker_diarization"
             case context
         }
     }
@@ -76,11 +94,17 @@ struct SonioxToken: Decodable, Equatable, Sendable {
     let text: String
     let isFinal: Bool
     let language: String?
+    let speaker: String?
+    let startMS: Double?
+    let endMS: Double?
 
     enum CodingKeys: String, CodingKey {
         case text
         case isFinal = "is_final"
         case language
+        case speaker
+        case startMS = "start_ms"
+        case endMS = "end_ms"
     }
 }
 

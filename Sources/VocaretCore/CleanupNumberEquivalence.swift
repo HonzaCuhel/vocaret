@@ -16,6 +16,8 @@ enum CleanupNumberEquivalence {
     }
 
     static func check(original: String, cleaned: String) -> Check {
+        let original = withoutMarkdownOrdinals(original)
+        let cleaned = withoutMarkdownOrdinals(cleaned)
         let sourceDigits = digitReplacements(in: original)
         let outputDigits = digitReplacements(in: cleaned)
         let outputValues = Set(outputDigits.map(\.value))
@@ -30,6 +32,33 @@ enum CleanupNumberEquivalence {
             original: replacing(spoken, in: source), cleaned: output,
             isSupported: missing.isSubset(of: Set(spoken.map(\.value)))
         )
+    }
+
+    /// Ignore layout ordinals, while leaving quantities and versions intact.
+    private static func withoutMarkdownOrdinals(_ text: String) -> String {
+        let string = text as NSString
+        let regex = try! NSRegularExpression(pattern: #"(?m)^ {0,3}(#{1,6} +)?([0-9]{1,9})[.)][ \t]+(?=\S)"#)
+        let matches = regex.matches(in: text, range: NSRange(location: 0, length: string.length))
+        var removals: [Replacement] = []
+        // Require consecutive ordinals starting at 1. A standalone line such as
+        // "30. června" is a date, not evidence of a generated numbered list.
+        for headings in [false, true] {
+            let group = matches.filter { ($0.range(at: 1).location != NSNotFound) == headings }
+            var sequence: [NSTextCheckingResult] = []
+            func finish() {
+                if sequence.count >= 2 {
+                    removals += sequence.map { Replacement(range: $0.range, value: "") }
+                }
+                sequence = []
+            }
+            for match in group {
+                let number = Int(string.substring(with: match.range(at: 2)))
+                if number != sequence.count + 1 { finish() }
+                if number == sequence.count + 1 { sequence.append(match) }
+            }
+            finish()
+        }
+        return replacing(removals, in: text)
     }
 
     private static func digitReplacements(in text: String) -> [Replacement] {

@@ -219,50 +219,26 @@ public actor LLMCleaner {
     /// system prompt and an answer of similar length within the context.
     static let maxTranscriptTokensPerRequest = 5_000
 
-    /// Structures a meeting transcript. Returns nil when the LLM could not be
-    /// used (caller keeps the raw transcript and tells the user).
-    ///
-    /// Short transcripts get the full treatment (summary, action items,
-    /// cleaned transcript). Long ones are split at turn boundaries into slices
-    /// that fit the context; each slice yields summary + action items, then a
-    /// final pass merges them. The cleaned transcript is skipped for long
-    /// meetings — the raw transcript is always saved alongside anyway.
+    /// Compatibility entry point for local-only CLI self-tests. The application
+    /// uses MeetingNotesGenerator with an explicit settings snapshot instead.
     public func structureMeeting(markdownTranscript: String) async -> String? {
-        guard !markdownTranscript.isEmpty else { return nil }
-        do {
-            let slices = Self.slices(markdownTranscript, maxTokens: Self.maxTranscriptTokensPerRequest)
-            if slices.count == 1 {
-                let output = try await chat(
-                    system: LLMPrompts.meetingSystem,
-                    user: LLMPrompts.meetingUser(transcript: markdownTranscript),
-                    maxTokens: Self.contextTokens - Self.estimatedTokens(LLMPrompts.meetingSystem + markdownTranscript) - 256
-                )
-                return output.text.isEmpty ? nil : output.text + (output.truncated ? Self.truncationNote : "")
-            }
+        let generator = MeetingNotesGenerator(localCompletion: { system, user, maxTokens, timeout in
+            try await self.completeMeetingNotes(system: system, user: user, maxTokens: maxTokens, timeout: timeout)
+        })
+        let result = await generator.generate(markdownTranscript: markdownTranscript, provider: .local)
+        return result.isComplete ? result.markdown : nil
+    }
 
-            Log.info("Long transcript: structuring in \(slices.count) slices")
-            var partials: [String] = []
-            for (index, slice) in slices.enumerated() {
-                let output = try await chat(
-                    system: LLMPrompts.meetingPartSystem,
-                    user: LLMPrompts.meetingPartUser(part: index + 1, of: slices.count, transcript: slice),
-                    maxTokens: 2_048
-                )
-                if !output.text.isEmpty { partials.append(output.text) }
-            }
-            guard !partials.isEmpty else { return nil }
-            let merged = try await chat(
-                system: LLMPrompts.meetingMergeSystem,
-                user: LLMPrompts.meetingMergeUser(partials: partials),
-                maxTokens: 4_096
-            )
-            guard !merged.text.isEmpty else { return nil }
-            return merged.text + (merged.truncated ? Self.truncationNote : "")
-                + "\n\n_(Cleaned transcript omitted for long meetings; the raw transcript follows.)_"
-        } catch {
-            Log.warn("Meeting structuring skipped: \(error.localizedDescription)")
-            return nil
-        }
+    /// A partial model response is a failure, not a completed summary. The
+    /// generator retains earlier part notes and the caller retains raw audio/text.
+    func completeMeetingNotes(system: String, user: String, maxTokens: Int, timeout: TimeInterval) async throws -> String {
+        let availableTokens = Self.contextTokens - Self.estimatedTokens(system + user) - 512
+        guard availableTokens >= 512 else { throw MeetingNotesFailure.transcriptTooLarge }
+        let output = try await chat(
+            system: system, user: user, maxTokens: min(maxTokens, availableTokens), timeout: timeout
+        )
+        guard !output.truncated, !output.text.isEmpty else { throw MeetingNotesFailure.incompleteResponse }
+        return output.text
     }
 
     static let truncationNote = "\n\n_(Output truncated: model context limit reached.)_"

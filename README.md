@@ -70,18 +70,27 @@ YouTube needs browser Automation and JavaScript permissions. See
   Czech, English, German, and other languages supported by the selected engine.
 - **Local or live** — use local Whisper/Parakeet, or bring a Soniox key for live
   words with automatic local fallback.
-- **Meeting transcription** — `⌃⌥M` captures microphone and system audio as
-  `Me` / `Them`, without a virtual audio driver. Local transcription runs during
-  the call, with live speaker-labelled passages in the Meetings window.
-- **Useful extras** — optional local Qwen or GPT-5 nano cleanup, searchable history, speaking
+- **Meeting transcription** — `⌃⌥M` captures microphone and system audio without
+  a virtual audio driver. With Soniox selected, continuous streams identify
+  individual voices as `Call · Speaker 1`, `Call · Speaker 2`, and separate
+  microphone speakers. Local Whisper/Parakeet distinguish `Me` / `Them` by source.
+  The Meetings window follows live speaker-labelled passages.
+- **Meeting notes** — the AI model selector applies to both dictation and meeting
+  notes. GPT-5 nano selection uses the OpenAI API, including when dictation cleanup
+  is off. Notes contain a summary, decisions, action items and open questions,
+  alongside the complete available transcript. Provider errors preserve the raw
+  transcript and clearly label incomplete notes.
+- **Useful extras** — optional local Qwen or GPT-5.4 nano dictation cleanup, searchable history, speaking
   metrics, meeting summaries, and automatic Spotify/Music/YouTube pause and resume.
 - **Focused overlay** — see microphone level and the latest three live lines,
   including long sentences without punctuation. The complete transcript is
   preserved for insertion and history.
 
 Whisper, Parakeet, and Qwen through llama.cpp run locally. Soniox is an explicit
-opt-in for live audio; GPT-5 nano is a separate opt-in that receives transcript
-text for formatting. See [PRIVACY.md](PRIVACY.md) for the exact data flow.
+opt-in for live dictation and meeting audio; GPT-5 nano is a separate opt-in that
+receives transcript text for formatting and meeting notes. See [PRIVACY.md](PRIVACY.md)
+for the exact data flow. Speaker numbers belong to a single meeting and audio
+source; they do not identify real names or track voices between meetings.
 
 ## Requirements
 
@@ -91,6 +100,8 @@ text for formatting. See [PRIVACY.md](PRIVACY.md) for the exact data flow.
 - ~1.6 GB for the default speech model; ~2.4 GB more for optional cleanup
 
 ## Install
+
+The source includes meeting improvements newer than the published 0.2.2 download below.
 
 Download the [Vocaret 0.2.2 Apple Silicon DMG](https://github.com/HonzaCuhel/vocaret/releases/download/v0.2.2/Vocaret-0.2.2-macOS-arm64.dmg)
 from the [release page](https://github.com/HonzaCuhel/vocaret/releases/tag/v0.2.2).
@@ -164,27 +175,51 @@ connection fails, the panel reports it while microphone recording continues;
 the retained audio is transcribed locally after you release the shortcut.
 Stalled audio sends time out after 10 seconds, and finalization after 5 seconds.
 
+### Floating panel
+
+Closing the floating panel hides the current interaction. The next recording
+opens it again; disable floating feedback in Settings to keep it off. While AI
+formatting is running, **Insert without formatting** delivers the original
+transcript immediately. Escape cancels active capture or processing. Cancelling
+meeting processing keeps the audio for recovery rather than deleting it.
+
 ### AI cleanup
+
+Interactive cloud cleanup uses one plain-text editing request with a compact
+prompt. A local content check rejects unsafe changes without additional model
+calls. The entire formatting step has one deadline, including model startup;
+unavailable or rejected formatting falls back to the original transcript.
 
 In **Settings → AI cleanup**, enable dictation cleanup and choose:
 
 - **Local Qwen3 4B** — private and offline; run `scripts/setup_llm.sh` first.
-- **GPT-5 nano** — paste your OpenAI API key for fast cloud formatting. Audio
+- **OpenAI nano** — paste your OpenAI API key. Dictation uses GPT-5.4 nano; meeting notes use GPT-5 nano. Audio
   is never sent to OpenAI, responses use `store: false`, and failures fall back
   to the original transcript. See the provider’s
   [model page](https://developers.openai.com/api/docs/models/gpt-5-nano) for pricing.
 
-Cleanup removes fillers, accidental repetition and abandoned starts in the
-spoken language. Explicit changes of mind replace the superseded detail:
-“The budget is 100 dollars, actually 30 dollars” becomes “The budget is 30 dollars.”
-Independent amounts, conditions and negations are preserved. This is model-based
-editing; check important details before sending the text.
+Cleanup removes obvious fillers and accidental repetition in the spoken
+language. When repair cues such as “actually” are present, the fast cloud path
+conservatively keeps every word in order. It accepts punctuation and casing
+changes, but otherwise returns the original; even an innocent repetition may
+remain. This avoids extra meaning-review requests and guessing between alternatives.
+This is model-based editing; check important details before sending the text.
 
 History, **Copy Last**, the final preview and insertion use the same result after
 cleanup and personal spelling corrections. If formatting is unavailable or its
 output fails validation, the original transcript is retained with a visible
-notice and is not marked as AI formatted. GPT-5 nano uses low reasoning effort;
-its request timeout grows from 12 to 45 seconds with transcript length.
+notice and is not marked as AI formatted. Interactive GPT-5.4 nano edits use
+low reasoning, up to 4,096 output tokens and one total deadline of 12–45 seconds
+based on text length. There are no serial repair or meaning-review calls on
+this path. Confirmed vocabulary aliases are applied before editing, so known
+names do not depend on model inference. A local check rejects confident changes
+of language while allowing bilingual passages; it does not guarantee correct
+language detection in the original speech recognition.
+
+Meeting audio recovery reads and converts the WAV in 250 ms blocks. The raw
+audio buffer no longer grows with the file length; transcript text still grows
+with the conversation. The local notes model starts after recording finishes,
+so it does not occupy memory throughout the call.
 
 ## Meeting privacy
 
@@ -223,7 +258,7 @@ Restart Vocaret after changing defaults.
 
 ## Performance
 
-Meetings prepare the local speech model as recording starts and transcribe
+Local meetings prepare the speech model as recording starts and transcribe
 completed utterances during the call. Natural pauses release passages early;
 sustained speech is split into windows of at most 12 seconds. The final wait
 covers queued passages and optional local AI notes. On a slow machine or a cold
@@ -232,7 +267,7 @@ The Meetings library and selected document load off the UI thread.
 
 
 Warm Whisper dictation typically finishes in about one second; Parakeet is
-faster on clean speech. Soniox streams partial text; GPT-5 nano formats only
+faster on clean speech. Soniox streams partial text; GPT-5.4 nano formats only
 after transcription. Both use network and paid API credit. For the lightest
 local setup, use the 626 MB Whisper model, set `keepModelLoaded false`, and
 disable cleanup.
@@ -255,6 +290,10 @@ Microphone and System Audio Recording.
 
 ```bash
 swift test
+# Optional ten-minute synthetic meeting: cached model, native UI, no microphone or paid API
+VOCARET_MEETING_STRESS_TEST=1 swift test -c release --filter MeetingStressTests
+# Optional ten-minute Soniox client replay: synthetic transport and UI, no API calls
+VOCARET_SONIOX_STRESS_TEST=1 swift test -c release --filter SonioxMeetingStressTests
 swift build
 .build/debug/Vocaret --transcribe audio.wav [--language auto|cs|en|de|…]
 open -W -a ~/Applications/Vocaret.app --args --selftest all 8 --out /tmp/selftest.log
