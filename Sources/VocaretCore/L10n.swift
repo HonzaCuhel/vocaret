@@ -27,6 +27,8 @@ public enum L10n {
     ]
 
     static let cs: [String: String] = [
+        "Insert without formatting": "Vložit bez formátování",
+        "Preparing microphone…": "Připravuji mikrofon…",
         "Media pause needs Automation permission.": "Pozastavení médií potřebuje oprávnění Automatizace.",
         "YouTube: enable Allow JavaScript from Apple Events in your browser.": "YouTube: v prohlížeči povol JavaScript z událostí Apple.",
         "Account usage limit reached. Retry after the account limit resets.": "Limit účtu je vyčerpaný. Zkus to znovu po jeho obnovení.",

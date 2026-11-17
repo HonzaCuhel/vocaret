@@ -62,6 +62,9 @@ public final class DictationController {
     /// Guards the async gap in start() (permission prompt) against a second
     /// hotkey press starting a second recording.
     private var isStarting = false
+    private var startupTask: Task<Void, Never>?
+    private var startupGeneration = 0
+    private let requestMicrophone: @MainActor () async -> Bool
     /// The transcribe/clean/paste job, kept so Esc can abort a slow cleanup.
     private var job: Task<Void, Never>?
     private var jobGeneration = 0
@@ -83,7 +86,11 @@ public final class DictationController {
     private var recordingEngine = "whisper"
 
 
-    public init() {}
+    public init() { requestMicrophone = { await Permissions.requestMicrophone() } }
+
+    init(requestMicrophone: @escaping @MainActor () async -> Bool) {
+        self.requestMicrophone = requestMicrophone
+    }
 
     /// Shorter than this and the press counts as a tap (toggle mode) rather
     /// than a hold, so a quick tap-speak-tap still works.
@@ -124,6 +131,18 @@ public final class DictationController {
     }
 
     public func cancel() {
+        if isStarting {
+            startupGeneration &+= 1
+            startupTask?.cancel()
+            startupTask = nil
+            isStarting = false
+            gesture = DictationGestureState()
+            cancelLiveCapture()
+            unregisterCancelHotkey()
+            CompanionModel.shared.capturing = false
+            HUD.shared.hide(immediately: true)
+            return
+        }
         switch state {
         case .recording:
             HotkeyManager.shared.endReleaseWatch()
@@ -133,7 +152,7 @@ public final class DictationController {
             MediaPauser.shared.resumeIfPaused()
             unregisterCancelHotkey()
             SoundPlayer.play(.stop)
-            HUD.shared.hide()
+            HUD.shared.hide(immediately: true)
             state = .idle
         case .transcribing:
             let cancelledGeneration = activeJobGeneration
@@ -158,6 +177,7 @@ public final class DictationController {
 
     /// Called on app quit while recording: stop the engine cleanly.
     public func stopForTermination() {
+        if isStarting { cancel(); return }
         guard state == .recording else { return }
         cancelSpeculation()
         cancelLiveCapture()
@@ -169,9 +189,24 @@ public final class DictationController {
     private func start() {
         recordingDestination = transcriptDestination?()
         isStarting = true
-        Task { @MainActor in
-            defer { isStarting = false; if state == .idle { CompanionModel.shared.capturing = false } }
-            guard await Permissions.requestMicrophone() else {
+        startupGeneration &+= 1
+        let owner = startupGeneration
+        HUD.shared.beginPreparing(status: L("Preparing microphone…"), hint: L("Esc cancels"))
+        registerCancelHotkey()
+        startupTask = Task { @MainActor in
+            defer {
+                if startupGeneration == owner {
+                    isStarting = false
+                    startupTask = nil
+                    if state == .idle {
+                        CompanionModel.shared.capturing = false
+                        unregisterCancelHotkey()
+                    }
+                }
+            }
+            let permitted = await requestMicrophone()
+            guard startupGeneration == owner, !Task.isCancelled else { return }
+            guard permitted else {
                 HUD.shared.flash("Microphone access denied — enable it in System Settings")
                 Permissions.openMicrophoneSettings()
                 return
@@ -179,9 +214,11 @@ public final class DictationController {
             guard state == .idle else { return }
             recordingEngine = SettingsStore.shared.asrEngine
             do {
-                try await prepareLiveCaptureIfNeeded(engine: recordingEngine)
+                try await prepareLiveCaptureIfNeeded(engine: recordingEngine, owner: owner)
+                try Task.checkCancellation()
                 try recorder.startInMemory()
             } catch {
+                guard startupGeneration == owner, !Task.isCancelled else { return }
                 cancelLiveCapture()
                 SoundPlayer.play(.error)
                 HUD.shared.flash("Could not start recording: \(error.localizedDescription)")
@@ -215,7 +252,7 @@ public final class DictationController {
                 hint: holding
                     ? "\(L("Release to insert")) · \(hotkey) · \(L("Esc cancels"))"
                     : "\(L("Press to insert")) · \(hotkey) · \(L("Esc cancels"))",
-                level: { [weak recorder] in recorder?.level ?? 0 }
+                reopen: false, level: { [weak recorder] in recorder?.level ?? 0 }
             )
             registerCancelHotkey()
 
@@ -234,11 +271,12 @@ public final class DictationController {
         HUD.shared.update("Audio device changed — press the hotkey to insert")
     }
 
-    private func prepareLiveCaptureIfNeeded(engine: String) async throws {
+    private func prepareLiveCaptureIfNeeded(engine: String, owner: Int) async throws {
         guard engine == "soniox" else { return }
         guard let apiKey = try await AsyncAPIKeyAccess.shared.load(.soniox) else {
             throw LiveDictationConfigurationError.missingSonioxKey
         }
+        try Task.checkCancellation()
 
         let settings = SettingsStore.shared
         let languageHints = settings.language == "auto" ? settings.autoLanguages : [settings.language]
@@ -251,7 +289,14 @@ public final class DictationController {
         )
         let session = SonioxTranscriber(configuration: configuration)
         try await session.start { partial in
-            await MainActor.run { HUD.shared.updatePartial(partial) }
+            await MainActor.run {
+                guard self.startupGeneration == owner, self.state == .recording else { return }
+                HUD.shared.updatePartial(partial)
+            }
+        }
+        guard !Task.isCancelled else {
+            await session.cancel()
+            throw CancellationError()
         }
 
         let buffer = LiveAudioChunkBuffer(capacity: 64)
@@ -528,7 +573,18 @@ public final class DictationController {
                     HUD.shared.update(cleanupModel == "gpt-5-nano"
                         ? L("Formatting with GPT-5 nano…")
                         : L("Cleaning with local AI…"))
-                    cleanup = { await DictationCleanup.process($0, model: cleanupModel) }
+                    let cleanupJob = DictationCleanupJob()
+                    HUD.shared.model.insertWithoutFormatting = { cleanupJob.skip() }
+                    cleanup = { rawText in
+                        defer {
+                            if self.activeJobGeneration == thisJobGeneration {
+                                HUD.shared.model.insertWithoutFormatting = nil
+                            }
+                        }
+                        return await cleanupJob.run(text: rawText, timeout: DictationCleanup.timeout(for: rawText)) {
+                            await DictationCleanup.process(rawText, model: cleanupModel)
+                        }
+                    }
                 } else {
                     cleanup = nil
                 }
@@ -558,7 +614,8 @@ public final class DictationController {
                         return await TextInserter.insert($0, targetPID: targetPID)
                     }
                 )
-                if let failure = finalized.cleanupFailure {
+                try Task.checkCancellation()
+                if let failure = finalized.cleanupFailure, failure != .skipped {
                     HUD.shared.flash(failure == .unavailable
                         ? L("Formatting unavailable · Unformatted dictation saved")
                         : L("Formatting failed · Unformatted dictation saved"), seconds: 4)
@@ -568,6 +625,7 @@ public final class DictationController {
             } catch is CancellationError {
                 // cancel() already updated the HUD/state.
             } catch {
+                guard activeJobGeneration == thisJobGeneration, !Task.isCancelled else { return }
                 SoundPlayer.play(.error)
                 HUD.shared.flash("Transcription failed: \(error.localizedDescription)", seconds: 4)
                 Log.error("Dictation failed: \(error)")

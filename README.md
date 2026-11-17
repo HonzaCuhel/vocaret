@@ -164,7 +164,19 @@ connection fails, the panel reports it while microphone recording continues;
 the retained audio is transcribed locally after you release the shortcut.
 Stalled audio sends time out after 10 seconds, and finalization after 5 seconds.
 
+### Floating panel
+
+Closing the floating panel hides the current interaction. The next recording
+opens it again; disable floating feedback in Settings to keep it off. While AI
+formatting is running, **Insert without formatting** delivers the original
+transcript immediately. Escape cancels the dictation instead of inserting it.
+
 ### AI cleanup
+
+Interactive cloud cleanup uses one plain-text editing request with a compact
+prompt. A local content check rejects unsafe changes without additional model
+calls. The entire formatting step has one deadline, including model startup;
+unavailable or rejected formatting falls back to the original transcript.
 
 In **Settings → AI cleanup**, enable dictation cleanup and choose:
 
@@ -185,6 +197,11 @@ cleanup and personal spelling corrections. If formatting is unavailable or its
 output fails validation, the original transcript is retained with a visible
 notice and is not marked as AI formatted. GPT-5 nano uses low reasoning effort;
 its request timeout grows from 12 to 45 seconds with transcript length.
+
+Meeting audio recovery reads and converts the WAV in 250 ms blocks. The raw
+audio buffer no longer grows with the file length; transcript text still grows
+with the conversation. The local notes model starts after recording finishes,
+so it does not occupy memory throughout the call.
 
 ## Meeting privacy
 

@@ -178,7 +178,7 @@ struct CompanionView: View {
                         .frame(width: 36, height: 36)
                         .background(recording ? Color.red : Color.cyan, in: Circle())
                 }.disabled(processing || companion.busy).help(L(recording ? "Finish recording" : "Start recording"))
-                Button { HUD.shared.dismissCompanion() } label: { Image(systemName: "minus").foregroundStyle(.secondary) }
+                Button { HUD.shared.hideCompanion() } label: { Image(systemName: "minus").foregroundStyle(.secondary) }
                     .help(L("Hide panel (recording continues)"))
             }
             if !recorder.partialText.isEmpty {
@@ -186,6 +186,10 @@ struct CompanionView: View {
             }
             if !recorder.presentedStatusText.isEmpty {
                 Text(recorder.presentedStatusText).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+            }
+            if let insertWithoutFormatting = recorder.insertWithoutFormatting {
+                Button(L("Insert without formatting"), action: insertWithoutFormatting)
+                    .font(.caption)
             }
             if recording, let status = companion.mediaStatus {
                 Text(status).font(.system(size: 10)).foregroundStyle(.orange).lineLimit(2)

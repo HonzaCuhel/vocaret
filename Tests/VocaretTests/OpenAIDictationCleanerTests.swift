@@ -2,6 +2,32 @@ import XCTest
 @testable import VocaretCore
 
 final class OpenAIDictationCleanerTests: XCTestCase {
+    func testFastFormattingUsesOneRequestForWholeBilingualDictation() async throws {
+        let raw = String(repeating: "Zaprvé zkontroluj import. Then check the export. ", count: 15)
+        let transport = FastCleanupTransport(output: raw)
+        let result = await OpenAIDictationCleaner(transport: transport).processFastDictation(raw, apiKey: "test", vocabulary: [])
+        XCTAssertEqual(result.text, raw.trimmingCharacters(in: .whitespacesAndNewlines))
+        XCTAssertTrue(result.isFormatted)
+        let requests = await transport.requests
+        XCTAssertEqual(requests.count, 1)
+        let body = try XCTUnwrap(requests.first?.httpBody)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        XCTAssertEqual(json["input"] as? String, raw)
+        XCTAssertEqual(json["store"] as? Bool, false)
+        XCTAssertNil((json["text"] as? [String: Any])?["format"])
+    }
+
+    func testFastFormattingRejectsChangedAmountWithoutAnotherModelCall() async {
+        let transport = FastCleanupTransport(output: "Pošli 300 eur Janě.")
+        let result = await OpenAIDictationCleaner(transport: transport).processFastDictation(
+            "Pošli 30 eur Janě.", apiKey: "test", vocabulary: []
+        )
+        XCTAssertEqual(result.text, "Pošli 30 eur Janě.")
+        XCTAssertEqual(result.failure, .rejected)
+        let count = await transport.requests.count
+        XCTAssertEqual(count, 1)
+    }
+
     func testUsesGPT5NanoResponsesAPIWithLowReasoningAndNoStorage() async throws {
         let response = """
         {
@@ -138,4 +164,16 @@ private actor FakeOpenAIResponsesTransport: OpenAIResponsesTransport {
     }
 
     func capturedRequest() -> URLRequest? { lastRequest }
+}
+
+private actor FastCleanupTransport: OpenAIResponsesTransport {
+    let output: String
+    private(set) var requests: [URLRequest] = []
+    init(output: String) { self.output = output }
+    func data(for request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+        requests.append(request)
+        let response: [String: Any] = ["status": "completed", "output": [["content": [["type": "output_text", "text": output]]]]]
+        return (try JSONSerialization.data(withJSONObject: response),
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+    }
 }

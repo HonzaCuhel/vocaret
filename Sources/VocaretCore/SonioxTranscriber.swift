@@ -59,6 +59,7 @@ private actor OrderedSonioxWriter {
 actor SonioxTranscriber: LiveTranscriptionSession {
     private enum State {
         case idle
+        case starting
         case running
         case finishing
         case terminal
@@ -95,7 +96,17 @@ actor SonioxTranscriber: LiveTranscriptionSession {
     }
 
     func start(onPartial: @escaping @Sendable (String) async -> Void) async throws {
+        try await withTaskCancellationHandler {
+            try await startWhileActive(onPartial: onPartial)
+        } onCancel: {
+            Task { await self.cancel() }
+        }
+    }
+
+    private func startWhileActive(onPartial: @escaping @Sendable (String) async -> Void) async throws {
+        try Task.checkCancellation()
         guard state == .idle else { throw SonioxTranscriberError.invalidState }
+        state = .starting
 
         do {
             let configurationData = try configuration.data()
@@ -103,12 +114,15 @@ actor SonioxTranscriber: LiveTranscriptionSession {
                 throw SonioxTranscriberError.invalidResponse
             }
             try await transport.connect(to: configuration.region.webSocketURL)
+            try validateStartingState()
             try await writer.send(.text(configurationText))
+            try validateStartingState()
         } catch let error as SonioxTranscriberError {
             await transport.close()
             throw error
         } catch {
             await transport.close()
+            if Task.isCancelled || error is CancellationError { throw SonioxTranscriberError.cancelled }
             throw SonioxTranscriberError.transport(error.localizedDescription)
         }
 
@@ -117,6 +131,11 @@ actor SonioxTranscriber: LiveTranscriptionSession {
         receiveTask = Task { [weak self] in
             await self?.receiveLoop()
         }
+    }
+
+    private func validateStartingState() throws {
+        try Task.checkCancellation()
+        guard state == .starting else { throw SonioxTranscriberError.cancelled }
     }
 
     func append(_ samples: [Float]) async throws {

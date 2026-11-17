@@ -55,7 +55,7 @@ public final class MeetingController {
         AppModel.shared.meetingStartedAt = nil
         deleteRecordings()
         SoundPlayer.play(.stop)
-        HUD.shared.hide()
+        HUD.shared.hide(immediately: true)
         state = .idle
     }
 
@@ -192,7 +192,8 @@ public final class MeetingController {
             SoundPlayer.play(.start)
             state = .recording
             MediaPauser.shared.pauseIfPlaying()
-            if SettingsStore.shared.cleanMeetings { LLMCleaner.shared.warmUp() }
+            // Meeting notes are generated after capture. Warming their model
+            // here holds a second large model for the entire call.
             HUD.shared.beginRecording(
                 status: L("Live meeting · On this Mac"),
                 hint: "\(SettingsStore.shared.meetingHotkeyLabel) · \(L("Press to finish"))",
