@@ -21,13 +21,15 @@ public final class HUD {
     private var pointerInside = false
     private var persistentText: String?
     private var generation = 0
+    private var interactionHidden = false
 
     private init() {}
 
     // MARK: - Recording lifecycle (drives the animation)
 
     /// Enter the recording phase; `level` is polled every frame.
-    public func beginRecording(status: String, hint: String, level: @escaping () -> Float) {
+    public func beginRecording(status: String, hint: String, reopen: Bool = true, level: @escaping () -> Float) {
+        if reopen { interactionHidden = false }
         model.beginRecording(status: status, hint: hint)
         model.levelProvider = level
         model.startedAt = Date()
@@ -40,6 +42,12 @@ public final class HUD {
         model.beginTranscribing(status: status, hint: hint)
         persistentText = status
         present()
+    }
+
+    func beginPreparing(status: String, hint: String) {
+        interactionHidden = false
+        model.endInteraction()
+        beginTranscribing(status: status, hint: hint)
     }
 
     // MARK: - Messages
@@ -73,6 +81,7 @@ public final class HUD {
     /// Show a transient message and then hide. A flash always ENDS the current
     /// interaction, so it clears the persistent message rather than restoring it.
     public func flash(_ text: String, seconds: TimeInterval = 2.5) {
+        let completedCapture = model.phase == .recording || model.phase == .transcribing
         persistentText = nil
         model.endInteraction()
         model.levelProvider = nil
@@ -82,7 +91,7 @@ public final class HUD {
         let shownGeneration = generation
         DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { [weak self] in
             guard let self, self.generation == shownGeneration else { return }
-            self.hide()
+            self.hide(immediately: completedCapture)
         }
     }
 
@@ -100,17 +109,19 @@ public final class HUD {
 
     func showCompanion() {
         SettingsStore.shared.showHUD = true
+        interactionHidden = false
         present()
     }
 
-    /// Explicitly hide until the user enables or opens the panel again.
+    /// Hide this interaction without disabling feedback for the next recording.
     func hideCompanion() {
-        SettingsStore.shared.showHUD = false
+        interactionHidden = true
         dismissCompanion()
     }
 
     func dismissCompanion() {
         idleDismissal?.cancel()
+        pointerInside = false
         panel?.orderOut(nil)
     }
 
@@ -138,7 +149,7 @@ public final class HUD {
     }
 
     private func present() {
-        guard SettingsStore.shared.showHUD else { return }
+        guard SettingsStore.shared.showHUD, !interactionHidden else { return }
         if panel == nil { build() }
         generation += 1
         layout()

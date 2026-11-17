@@ -3,6 +3,24 @@ import XCTest
 @testable import VocaretCore
 
 final class SonioxTranscriberTests: XCTestCase {
+    func testCancellingStartupClosesBlockedConnectOrConfigurationPromptly() async throws {
+        for blockConnect in [false, true] {
+            let transport = FakeSonioxTransport(blockConfiguration: !blockConnect, blockConnect: blockConnect)
+            let subject = SonioxTranscriber(configuration: configuration, transport: transport)
+            let startup = Task { try await subject.start(onPartial: { _ in }) }
+            await transport.waitUntilBlocked()
+            startup.cancel()
+            let start = ContinuousClock.now
+            while !(await transport.isClosed()), start.duration(to: .now) < .milliseconds(250) {
+                try await Task.sleep(for: .milliseconds(10))
+            }
+            let closed = await transport.isClosed()
+            XCTAssertTrue(closed, "Cancellation must close the transport even before liveSession is installed")
+            await subject.cancel() // Unblock the fixture even when this regression fails.
+            _ = try? await startup.value
+        }
+    }
+
     func testFinalizationDeadlineIncludesBlockedSilenceSend() async throws {
         let transport = FakeSonioxTransport(blockFinalSilence: true)
         let subject = SonioxTranscriber(configuration: configuration, transport: transport,
@@ -241,7 +259,7 @@ final class SonioxTranscriberTests: XCTestCase {
 
         try await subject.start(onPartial: { _ in })
         let finishTask = Task { try await subject.finish() }
-        await transport.waitForBlockedFinalSilence()
+        await transport.waitUntilBlocked()
         finishTask.cancel()
 
         do {
@@ -385,20 +403,33 @@ private actor FakeSonioxTransport: SonioxTransport {
     private var closed = false
     private var didFinalize = false
     private let blockFinalSilence: Bool
+    private let blockConfiguration: Bool
+    private let blockConnect: Bool
     private var blockedSendContinuation: CheckedContinuation<Void, Error>?
     private var blockedSendWaiters: [CheckedContinuation<Void, Never>] = []
 
     init(
         initial: [Data] = [],
         afterFinalize: [Data] = [],
-        blockFinalSilence: Bool = false
+        blockFinalSilence: Bool = false,
+        blockConfiguration: Bool = false,
+        blockConnect: Bool = false
     ) {
         incoming = initial
         self.afterFinalize = afterFinalize
         self.blockFinalSilence = blockFinalSilence
+        self.blockConfiguration = blockConfiguration
+        self.blockConnect = blockConnect
     }
 
-    func connect(to _: URL) async throws {}
+    func connect(to _: URL) async throws {
+        if blockConnect {
+            let waiters = blockedSendWaiters
+            blockedSendWaiters.removeAll()
+            waiters.forEach { $0.resume() }
+            try await withCheckedThrowingContinuation { blockedSendContinuation = $0 }
+        }
+    }
 
     func send(_ frame: SonioxOutboundFrame) async throws {
         switch frame {
@@ -411,6 +442,12 @@ private actor FakeSonioxTransport: SonioxTransport {
             afterFinalize.forEach(enqueue)
         case .text(let text):
             frames.append(Frame(kind: .configuration, data: Data(text.utf8)))
+            if blockConfiguration {
+                let waiters = blockedSendWaiters
+                blockedSendWaiters.removeAll()
+                waiters.forEach { $0.resume() }
+                try await withCheckedThrowingContinuation { blockedSendContinuation = $0 }
+            }
         case .binary(let data):
             let isSilence = !data.isEmpty && data.allSatisfy { $0 == 0 }
             frames.append(Frame(kind: isSilence ? .silence : .audio, data: data))
@@ -455,7 +492,7 @@ private actor FakeSonioxTransport: SonioxTransport {
         await withCheckedContinuation { finalizeContinuations.append($0) }
     }
 
-    func waitForBlockedFinalSilence() async {
+    func waitUntilBlocked() async {
         if blockedSendContinuation != nil { return }
         await withCheckedContinuation { blockedSendWaiters.append($0) }
     }

@@ -4,6 +4,63 @@ import AppKit
 
 @MainActor
 final class RecorderHUDTests: XCTestCase {
+    func testClosingPanelOnlyHidesCurrentInteractionAndNextRecordingReopensIt() {
+        let hud = HUD.shared
+        let previousShowHUD = SettingsStore.shared.showHUD
+        SettingsStore.shared.showHUD = true
+        defer {
+            hud.hide(immediately: true)
+            SettingsStore.shared.showHUD = previousShowHUD
+        }
+        hud.beginRecording(status: "Recording", hint: "Stop", level: { 0 })
+        hud.hideCompanion()
+        XCTAssertFalse(hud.isPanelVisible)
+        XCTAssertTrue(SettingsStore.shared.showHUD, "Closing a window must not turn off future recording feedback")
+        hud.update("Still recording")
+        XCTAssertFalse(hud.isPanelVisible, "Updates must respect an explicitly hidden interaction")
+        hud.beginRecording(status: "Next recording", hint: "Stop", level: { 0 })
+        XCTAssertTrue(hud.isPanelVisible)
+    }
+
+    func testExplicitlyDisabledFeedbackStaysDisabledOnNextRecording() {
+        let hud = HUD.shared
+        let previousShowHUD = SettingsStore.shared.showHUD
+        SettingsStore.shared.showHUD = false
+        defer {
+            hud.hide(immediately: true)
+            SettingsStore.shared.showHUD = previousShowHUD
+        }
+        hud.beginRecording(status: "Recording", hint: "Stop", level: { 0 })
+        XCTAssertFalse(hud.isPanelVisible)
+        XCTAssertFalse(SettingsStore.shared.showHUD)
+    }
+
+    func testCompletionToastClosesMeetingPanelAtItsOwnDeadlineEvenWhileHovered() async throws {
+        let hud = HUD.shared
+        let companion = CompanionModel.shared
+        let previousShowHUD = SettingsStore.shared.showHUD
+        let previousMode = companion.mode
+        let previousExpanded = companion.expanded
+        SettingsStore.shared.showHUD = true
+        companion.mode = .meeting
+        companion.expanded = true
+        defer {
+            hud.hide(immediately: true)
+            companion.mode = previousMode
+            companion.expanded = previousExpanded
+            SettingsStore.shared.showHUD = previousShowHUD
+        }
+        hud.beginTranscribing(status: "Finishing", hint: "Wait")
+        hud.setPointerInside(true)
+        hud.flash("Meeting saved", seconds: 0.01)
+        let start = ContinuousClock.now
+        while hud.isPanelVisible, start.duration(to: .now) < .seconds(1) {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertFalse(hud.isPanelVisible, "A completed capture must not leave its expanded panel stuck onscreen")
+        XCTAssertEqual(hud.model.phase, .hidden)
+    }
+
     func testImmediateHideClosesPanelEvenWhileHoveredAndClearsRecording() {
         let hud = HUD.shared
         let previousShowHUD = SettingsStore.shared.showHUD

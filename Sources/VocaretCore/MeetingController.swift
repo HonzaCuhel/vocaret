@@ -26,12 +26,27 @@ public final class MeetingController {
     private var micURL: URL?
     private var systemURL: URL?
     private var startedAt: Date?
+    private var recordingStem = ""
     private var isStarting = false
+    private var startupTask: Task<Void, Never>?
+    private var processingTask: Task<Void, Never>?
+    private var finishingSession: (any MeetingSession)?
+    private let requestMicrophone: @MainActor () async -> Bool
+    private let acknowledgeConsent: (@MainActor () -> Bool)?
     private var liveSession: (any MeetingSession)?
     private var generation = 0
     private var recordingOptions = MeetingProcessingOptions(settings: .shared)
 
-    public init() {}
+    public init() {
+        requestMicrophone = { await Permissions.requestMicrophone() }
+        acknowledgeConsent = nil
+    }
+
+    init(requestMicrophone: @escaping @MainActor () async -> Bool,
+         acknowledgeConsent: @escaping @MainActor () -> Bool) {
+        self.requestMicrophone = requestMicrophone
+        self.acknowledgeConsent = acknowledgeConsent
+    }
 
     public func toggle() {
         switch state {
@@ -47,6 +62,30 @@ public final class MeetingController {
     }
 
     public func cancel() {
+        if isStarting {
+            generation &+= 1
+            startupTask?.cancel()
+            startupTask = nil
+            isStarting = false
+            cancelLiveSession()
+            CompanionModel.shared.capturing = false
+            unregisterCancelHotkey()
+            HUD.shared.hide(immediately: true)
+            return
+        }
+        if state == .processing {
+            generation &+= 1
+            processingTask?.cancel()
+            processingTask = nil
+            finishingSession?.cancel()
+            finishingSession = nil
+            AppModel.shared.meetingStartedAt = nil
+            AppModel.shared.meetingStatus = L("Meeting processing cancelled — audio kept for recovery")
+            HUD.shared.flash(AppModel.shared.meetingStatus)
+            unregisterCancelHotkey()
+            state = .idle
+            return
+        }
         guard state == .recording else { return }
         generation += 1
         stopCapture()
@@ -55,7 +94,8 @@ public final class MeetingController {
         AppModel.shared.meetingStartedAt = nil
         deleteRecordings()
         SoundPlayer.play(.stop)
-        HUD.shared.hide()
+        HUD.shared.hide(immediately: true)
+        unregisterCancelHotkey()
         state = .idle
     }
 
@@ -63,6 +103,7 @@ public final class MeetingController {
     /// headers are finalized. Files are kept and can be transcribed later with
     /// `Vocaret --transcribe <file>`.
     public func stopForTermination() {
+        if isStarting || state == .processing { cancel(); return }
         guard state == .recording else { return }
         generation += 1
         stopCapture()
@@ -106,14 +147,29 @@ public final class MeetingController {
             HUD.shared.flash("Meeting capture needs macOS 14.4 or newer")
             return
         }
-        guard consentAcknowledged() else { CompanionModel.shared.capturing = false; return }
+        guard acknowledgeConsent?() ?? consentAcknowledged() else { CompanionModel.shared.capturing = false; return }
         CompanionModel.shared.capturing = true
         CompanionModel.shared.mode = .meeting
         CompanionModel.shared.expanded = true
         isStarting = true
-        Task { @MainActor in
-            defer { isStarting = false; if state == .idle { CompanionModel.shared.capturing = false } }
-            guard await Permissions.requestMicrophone() else {
+        generation &+= 1
+        let owner = generation
+        HUD.shared.beginPreparing(status: L("Preparing meeting…"), hint: L("Esc cancels"))
+        registerCancelHotkey()
+        startupTask = Task { @MainActor in
+            defer {
+                if generation == owner {
+                    isStarting = false
+                    startupTask = nil
+                    if state == .idle {
+                        CompanionModel.shared.capturing = false
+                        unregisterCancelHotkey()
+                    }
+                }
+            }
+            let permitted = await requestMicrophone()
+            guard generation == owner, !Task.isCancelled else { return }
+            guard permitted else {
                 HUD.shared.flash("Microphone access denied — enable it in System Settings")
                 Permissions.openMicrophoneSettings()
                 return
@@ -126,9 +182,11 @@ public final class MeetingController {
             if options.usesCloudSpeech {
                 do {
                     guard let key = try await AsyncAPIKeyAccess.shared.load(.soniox) else {
+                        guard self.generation == owner, !Task.isCancelled else { return }
                         HUD.shared.flash(L("Add a Soniox API key in Settings before recording a cloud meeting"), seconds: 5)
                         return
                     }
+                    guard self.generation == owner, !Task.isCancelled else { return }
                     configuration = SonioxConfiguration(
                         apiKey: key, region: SonioxRegion(rawValue: settings.sonioxRegion) ?? .eu,
                         languageHints: settings.language == "auto" ? settings.autoLanguages : [settings.language],
@@ -136,18 +194,17 @@ public final class MeetingController {
                         enableSpeakerDiarization: true
                     )
                 } catch {
+                    guard self.generation == owner, !Task.isCancelled else { return }
                     HUD.shared.flash(L("Could not read the Soniox key — reconnect in Settings"), seconds: 5)
                     return
                 }
             } else { configuration = nil }
 
-            let timestamp = Self.timestampFormatter.string(from: Date())
+            let stem = Self.makeRecordingStem(at: Date())
             let recordingsDir = SettingsStore.shared.recordingsDir
-            let micURL = recordingsDir.appendingPathComponent("\(timestamp)-mic.wav")
-            let systemURL = recordingsDir.appendingPathComponent("\(timestamp)-system.wav")
+            let micURL = recordingsDir.appendingPathComponent("\(stem)-mic.wav")
+            let systemURL = recordingsDir.appendingPathComponent("\(stem)-system.wav")
 
-            generation += 1
-            let owner = generation
             recordingOptions = options
             let engine = options.speechEngine
             AppModel.shared.liveMeetingTurns = []
@@ -156,13 +213,14 @@ public final class MeetingController {
             let onUpdate: @Sendable (MeetingTranscriptionResult) async -> Void = { result in
                 await MainActor.run {
                     guard self.generation == owner, self.state != .idle else { return }
-                    AppModel.shared.liveMeetingTurns = result.turns
+                    let turns = result.turns
+                    AppModel.shared.liveMeetingTurns = turns
                     if result.needsRecovery {
                         AppModel.shared.meetingStatus = L("Recording safely — remaining speech will be recovered after finishing")
                     } else if options.usesCloudSpeech {
                         AppModel.shared.meetingStatus = L("Listening · Soniox speaker recognition")
                     }
-                    if let turn = result.turns.last {
+                    if let turn = turns.last {
                         HUD.shared.updatePartial("\(turn.speaker.localizedLabel): \(turn.text)")
                     }
                 }
@@ -197,7 +255,6 @@ public final class MeetingController {
                 tap.stop()
                 micRecorder.stop()
                 cancelLiveSession()
-                generation += 1
                 try? FileManager.default.removeItem(at: micURL)
                 try? FileManager.default.removeItem(at: systemURL)
                 SoundPlayer.play(.error)
@@ -219,16 +276,18 @@ public final class MeetingController {
             self.systemTap = tap
             self.micURL = micURL
             self.systemURL = systemURL
+            self.recordingStem = stem
             self.startedAt = Date()
             AppModel.shared.meetingStartedAt = self.startedAt
             SoundPlayer.play(.start)
             state = .recording
             MediaPauser.shared.pauseIfPlaying()
-            if options.shouldWarmLocalNotes { LLMCleaner.shared.warmUp() }
+            // Meeting notes are generated after capture. Warming their model
+            // here holds a second large model for the entire call.
             HUD.shared.beginRecording(
                 status: L(options.usesCloudSpeech ? "Live meeting · Soniox · Speaker recognition" : "Live meeting · On this Mac"),
                 hint: "\(SettingsStore.shared.meetingHotkeyLabel) · \(L("Press to finish"))",
-                level: { [weak micRecorder] in micRecorder?.level ?? 0 }
+                reopen: false, level: { [weak micRecorder] in micRecorder?.level ?? 0 }
             )
         }
     }
@@ -251,29 +310,24 @@ public final class MeetingController {
         let options = recordingOptions
         liveSession = nil
         SoundPlayer.play(.stop)
-        state = .processing
-        HUD.shared.beginTranscribing(
-            status: L("Finishing meeting…"),
-            hint: L("Completing the last passages")
-        )
-
-        AppModel.shared.meetingStatus = L("Completing the last passages")
         let startedAt = self.startedAt ?? Date()
-        Task { @MainActor in
+        let recordingStem = self.recordingStem
+        let owner = generation
+        startProcessing(session: session) { [self] in
+            var localSpeechLease = !options.usesCloudSpeech && session != nil
             defer {
-                state = .idle
-                AppModel.shared.meetingStartedAt = nil
-                AppModel.shared.refreshMeetings()
+                if localSpeechLease { Task { await Transcriber.shared.endMeeting() } }
             }
 
             var result = await session?.finish() ?? MeetingTranscriptionResult(failedSpeakers: [.me, .them])
+            guard generation == owner, !Task.isCancelled else { return }
             if systemConversionFailed { result.failedSpeakers.insert(.them) }
             let needsRecovery = result.needsRecovery
             let diarizationUnavailable = options.usesCloudSpeech && needsRecovery
-            var localSpeechLease = !options.usesCloudSpeech && session != nil
             if options.usesCloudSpeech && needsRecovery {
-                await Transcriber.shared.beginMeeting(engine: "whisper")
                 localSpeechLease = true
+                await Transcriber.shared.beginMeeting(engine: "whisper")
+                guard generation == owner, !Task.isCancelled else { return }
             }
             var recoveryFailed = systemCaptureFailed || micCaptureFailed
             for speaker in [Speaker.me, .them] where result.failedSpeakers.contains(speaker) {
@@ -285,15 +339,21 @@ public final class MeetingController {
                         fileURL: speaker == .me ? micURL : systemURL,
                         engine: options.usesCloudSpeech ? "whisper" : options.speechEngine
                     )
+                    guard generation == owner, !Task.isCancelled else { return }
                     if !result.recover(speaker, from: segments) { recoveryFailed = true }
                 } catch {
+                    guard generation == owner, !Task.isCancelled else { return }
                     recoveryFailed = true
                     Log.error("Meeting recovery failed for \(speaker.label): \(error.localizedDescription)")
                 }
             }
             // The live worker may finish early on overflow. Keep its model
             // lease until recovery is complete, then release it exactly once.
-            if localSpeechLease { await Transcriber.shared.endMeeting() }
+            if localSpeechLease {
+                localSpeechLease = false
+                await Transcriber.shared.endMeeting()
+            }
+            guard generation == owner, !Task.isCancelled else { return }
             if needsRecovery { Log.info("Meeting recovery completed; incomplete=\(recoveryFailed)") }
             let mine = result.mine
             let theirs = result.theirs
@@ -319,9 +379,11 @@ public final class MeetingController {
                 HUD.shared.update(status)
                 let key = options.notesProvider == .gpt5Nano
                     ? try? await AsyncAPIKeyAccess.shared.load(.openAI) : nil
+                guard generation == owner, !Task.isCancelled else { return }
                 let notes = await MeetingNotesGenerator.shared.generate(
                     markdownTranscript: rawTranscript, provider: options.notesProvider, apiKey: key
                 )
+                guard generation == owner, !Task.isCancelled else { return }
                 if let structured = notes.markdown {
                     body = (notes.isComplete ? "" : "> ⚠️ AI notes are incomplete. Consult the full transcript below.\n\n")
                         + structured + "\n\n---\n\n## Raw transcript\n\n" + rawTranscript
@@ -357,7 +419,7 @@ public final class MeetingController {
             """
 
             let outputURL = SettingsStore.shared.meetingsDir
-                .appendingPathComponent("\(Self.timestampFormatter.string(from: startedAt)).md")
+                .appendingPathComponent("\(recordingStem).md")
             do {
                 try document.write(to: outputURL, atomically: true, encoding: .utf8)
             } catch {
@@ -387,6 +449,38 @@ public final class MeetingController {
         }
     }
 
+    /// Own the processing lifecycle separately from device capture so a blocked
+    /// provider can be cancelled and an older completion cannot close a new job.
+    func startProcessing(session: (any MeetingSession)?, operation: @escaping @MainActor () async -> Void) {
+        let owner = generation
+        finishingSession = session
+        state = .processing
+        HUD.shared.beginTranscribing(status: L("Finishing meeting…"), hint: L("Esc cancels"))
+        AppModel.shared.meetingStatus = L("Completing the last passages")
+        registerCancelHotkey()
+        processingTask = Task { @MainActor in
+            defer {
+                if generation == owner {
+                    finishingSession = nil
+                    processingTask = nil
+                    unregisterCancelHotkey()
+                    state = .idle
+                    AppModel.shared.meetingStartedAt = nil
+                    AppModel.shared.refreshMeetings()
+                }
+            }
+            await operation()
+        }
+    }
+
+    private func registerCancelHotkey() {
+        try? HotkeyManager.shared.register(id: HotkeyID.cancel, keyCode: 53, modifiers: 0) { [weak self] in self?.cancel() }
+    }
+
+    private func unregisterCancelHotkey() {
+        HotkeyManager.shared.unregister(id: HotkeyID.cancel)
+    }
+
     private func cancelLiveSession() {
         guard let session = liveSession else { return }
         liveSession = nil
@@ -413,6 +507,10 @@ public final class MeetingController {
         }
         micURL = nil
         systemURL = nil
+    }
+
+    static func makeRecordingStem(at date: Date) -> String {
+        timestampFormatter.string(from: date) + "-" + UUID().uuidString
     }
 
     private static let timestampFormatter: DateFormatter = {

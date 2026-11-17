@@ -1,6 +1,7 @@
 import Foundation
 
 enum DictationCleanupFailure: Equatable, Sendable {
+    case skipped
     case unavailable
     case incomplete
     case rejected
@@ -37,7 +38,7 @@ enum DictationCleanup {
                 Log.warn("OpenAI dictation cleanup skipped: API key is missing")
                 return DictationCleanupResult(text: text, failure: .unavailable)
             }
-            return await OpenAIDictationCleaner.shared.processDictation(
+            return await OpenAIDictationCleaner.shared.processFastDictation(
                 text, apiKey: key, vocabulary: Vocabulary.shared.terms,
                 confirmedAliases: Vocabulary.shared.learnedCorrections
             )

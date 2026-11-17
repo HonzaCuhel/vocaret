@@ -190,6 +190,13 @@ struct CompanionView: View {
             if !recorder.presentedStatusText.isEmpty {
                 Text(recorder.presentedStatusText).font(.caption).foregroundStyle(.secondary).lineLimit(2)
             }
+            if !recorder.hintText.isEmpty {
+                Text(recorder.hintText).font(.caption2).foregroundStyle(.secondary).lineLimit(2)
+            }
+            if let insertWithoutFormatting = recorder.insertWithoutFormatting {
+                Button(L("Insert without formatting"), action: insertWithoutFormatting)
+                    .font(.caption)
+            }
             if recording, let status = companion.mediaStatus {
                 Text(status).font(.system(size: 10)).foregroundStyle(.orange).lineLimit(2)
             }

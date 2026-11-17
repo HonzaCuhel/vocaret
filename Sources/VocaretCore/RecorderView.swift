@@ -123,6 +123,8 @@ public final class RecorderModel: ObservableObject {
     /// Read on every frame; nil when nothing is recording.
     public var levelProvider: (() -> Float)?
 
+    @Published var insertWithoutFormatting: (() -> Void)?
+
     public init() {}
 
     /// Compatibility for callers that still treat the primary copy as one
@@ -166,6 +168,7 @@ public final class RecorderModel: ObservableObject {
     }
 
     func endInteraction() {
+        insertWithoutFormatting = nil
         statusText = ""
         hintText = ""
         partialText = ""

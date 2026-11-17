@@ -29,20 +29,19 @@ key for authentication but no recording or transcript.
 With **OpenAI nano selected for AI cleanup**, Vocaret sends the completed
 transcript text, the cleanup instructions, and your vocabulary terms to the
 OpenAI Responses API using GPT-5.4 nano. It does not send audio. Requests use
-`store: false`, low reasoning for short edits and medium reasoning for longer
-text. Longer requests have a 45-second timeout and up to 8,192 output tokens.
-Explicit spoken task sequences can be sent as separate sections. An error,
-timeout, empty response, or suspicious rewrite is discarded; the original
-transcript remains available and an on-screen notice identifies the unformatted
-fallback. History, Copy Last, and insertion use the same final result after
-cleanup and personal spelling corrections.
-Substantial rewrites that fail the word-overlap check may send the original and
-edited text to the same model in an additional meaning-check request
-(`store: false`, up to 20 seconds). A longer edit may make one additional repair
-request containing that feedback, followed by another meaning check.
-Explicit self-corrections may first send the original text in a dedicated repair
-request and send the proposed result for meaning validation (same model,
-`store: false`, 20 seconds per request).
+`store: false`. Interactive dictation uses one compact plain-text request,
+low reasoning, up to 4,096 output tokens and a total cleanup deadline of 12–45
+seconds based on text length. **Insert without formatting** stops waiting and
+uses the raw transcript immediately. An error, timeout, empty response, or
+suspicious rewrite is discarded; an on-screen notice identifies the unformatted
+fallback. There are no serial repair or meaning-review requests on this
+interactive path. Text containing repair cues such as “actually” must retain
+its words and order or the output is discarded, including otherwise harmless
+repetition removal. History, Copy Last, and insertion use the same final result
+after cleanup and personal spelling corrections. A conservative local language
+check can reject a confident language change; it cannot guarantee that speech
+recognition detected the right language.
+
 Review the [OpenAI API data controls](https://developers.openai.com/api/docs/guides/your-data)
 before opting in.
 
@@ -90,7 +89,8 @@ The live audio queue is capped at 120 seconds of mono samples combined across
 both tracks (about 7.7 MB), plus the current utterances or network frame.
 
 If the queue fills or a passage fails, Vocaret retries from the recording after
-the call. If recovery or saving fails, the raw WAV files remain on disk even
+the call. Cancelling while a meeting is being finalized or its notes are being generated also
+keeps the WAV files for recovery. If recovery or saving fails, the raw WAV files remain on disk even
 when automatic deletion is enabled. A partial transcript is marked as incomplete.
 When a cloud track is recovered locally, its text is retained but individual
 voice attribution is unavailable and the saved document says so. A cloud failure
@@ -103,17 +103,6 @@ summaries may be sent back to that same provider to produce a final summary.
 When the selected provider fails, Vocaret preserves the raw transcript and marks
 the summary incomplete; it does not silently switch to local Qwen. Local Qwen is
 used only when selected. Turning off meeting notes skips both providers.
-
-## Optional browser extension
-
-The separate Chrome/Edge extension records the selected tab only after Start is
-pressed. Optional microphone capture requires its own visible permission step.
-It streams audio to Soniox and, when enabled, sends transcript text to GPT-5 nano
-for notes. It does not read web page contents, receive the native app's keys, or
-share settings with the native app. Extension keys are supplied by the user and
-kept in session storage for trusted extension contexts. See
-[the extension instructions](browser-extension/README.md) for capture, retention,
-and local installation details. No browser-store publication is implied.
 
 ## What is stored on your Mac, and where
 

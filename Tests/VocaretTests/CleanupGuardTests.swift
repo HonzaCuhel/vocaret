@@ -2,6 +2,12 @@ import XCTest
 @testable import VocaretCore
 
 final class CleanupGuardTests: XCTestCase {
+    func testRemovingCzechHesitationKeepsAnEnglishPassageSafe() {
+        let request = "Please check the import and explain every change before you send anything to anyone."
+        let original = "No takže jako vlastně no, já jenom, chci říct, že jako v podstatě, no vlastně, prostě, takže já jako jenom, no vlastně, tedy tak nějak. " + request
+        XCTAssertTrue(CleanupGuard.isSafe(original: original, cleaned: request))
+    }
+
     func testMarkdownHeadingsPreserveVersionsAndAmounts() {
         XCTAssertFalse(CleanupGuard.isSafe(original: "30. června pošli report.", cleaned: "31. června pošli report."))
         XCTAssertTrue(CleanupGuard.isSafe(

@@ -92,15 +92,6 @@ receives transcript text for formatting and meeting notes. See [PRIVACY.md](PRIV
 for the exact data flow. Speaker numbers belong to a single meeting and audio
 source; they do not identify real names or track voices between meetings.
 
-### Browser meeting extension (development preview)
-
-The [Chrome/Edge extension](browser-extension/README.md) captures the selected
-meeting tab, optionally includes your microphone, and exports a diarized transcript
-with optional GPT-5 nano notes. Load `browser-extension/` unpacked using the linked
-instructions. It has separate session-only API-key settings and is not distributed
-through a browser store. The meeting improvements above describe this working
-tree; the published 0.2.2 download below is the earlier release.
-
 ## Requirements
 
 - **Apple Silicon** Mac (M1 or newer)
@@ -109,6 +100,8 @@ tree; the published 0.2.2 download below is the earlier release.
 - ~1.6 GB for the default speech model; ~2.4 GB more for optional cleanup
 
 ## Install
+
+The source includes meeting improvements newer than the published 0.2.2 download below.
 
 Download the [Vocaret 0.2.2 Apple Silicon DMG](https://github.com/HonzaCuhel/vocaret/releases/download/v0.2.2/Vocaret-0.2.2-macOS-arm64.dmg)
 from the [release page](https://github.com/HonzaCuhel/vocaret/releases/tag/v0.2.2).
@@ -182,7 +175,20 @@ connection fails, the panel reports it while microphone recording continues;
 the retained audio is transcribed locally after you release the shortcut.
 Stalled audio sends time out after 10 seconds, and finalization after 5 seconds.
 
+### Floating panel
+
+Closing the floating panel hides the current interaction. The next recording
+opens it again; disable floating feedback in Settings to keep it off. While AI
+formatting is running, **Insert without formatting** delivers the original
+transcript immediately. Escape cancels active capture or processing. Cancelling
+meeting processing keeps the audio for recovery rather than deleting it.
+
 ### AI cleanup
+
+Interactive cloud cleanup uses one plain-text editing request with a compact
+prompt. A local content check rejects unsafe changes without additional model
+calls. The entire formatting step has one deadline, including model startup;
+unavailable or rejected formatting falls back to the original transcript.
 
 In **Settings → AI cleanup**, enable dictation cleanup and choose:
 
@@ -192,30 +198,28 @@ In **Settings → AI cleanup**, enable dictation cleanup and choose:
   to the original transcript. See the provider’s
   [model page](https://developers.openai.com/api/docs/models/gpt-5-nano) for pricing.
 
-Cleanup removes fillers, accidental repetition and abandoned starts in the
-spoken language. Explicit changes of mind replace the superseded detail:
-“The budget is 100 dollars, actually 30 dollars” becomes “The budget is 30 dollars.”
-Independent amounts, conditions and negations are preserved. This is model-based
-editing; check important details before sending the text.
+Cleanup removes obvious fillers and accidental repetition in the spoken
+language. When repair cues such as “actually” are present, the fast cloud path
+conservatively keeps every word in order. It accepts punctuation and casing
+changes, but otherwise returns the original; even an innocent repetition may
+remain. This avoids extra meaning-review requests and guessing between alternatives.
+This is model-based editing; check important details before sending the text.
 
 History, **Copy Last**, the final preview and insertion use the same result after
 cleanup and personal spelling corrections. If formatting is unavailable or its
 output fails validation, the original transcript is retained with a visible
-notice and is not marked as AI formatted. GPT-5.4 nano uses low reasoning for short
-edits. Longer text is edited in numbered source-sentence slots with medium
-reasoning, a 45-second request timeout and up to 8,192 output tokens. Explicit
-spoken task sequences are edited as separate sections; the app adds their numbers.
-The pasted result uses plain paragraphs and lists, without Markdown headings,
-bold markers or backticks. Substantial rewrites that fail the word-overlap check receive an additional
-meaning check using the same model (up to 20 seconds). Longer edits may make one
-repair attempt using that feedback, followed by another check. Only explicit
-approval accepts those edits. This is
-an AI check, not a guarantee of factual equivalence. Short edits normally use a
-single request. Explicit spoken self-corrections get a separate, narrowly scoped
-repair pass before formatting. Its quoted edits must match the source uniquely
-and either match a narrow comma-delimited token-correction rule or receive an
-independent meaning check before they are applied. Confirmed vocabulary aliases
-are applied before editing, so known names do not depend on model inference.
+notice and is not marked as AI formatted. Interactive GPT-5.4 nano edits use
+low reasoning, up to 4,096 output tokens and one total deadline of 12–45 seconds
+based on text length. There are no serial repair or meaning-review calls on
+this path. Confirmed vocabulary aliases are applied before editing, so known
+names do not depend on model inference. A local check rejects confident changes
+of language while allowing bilingual passages; it does not guarantee correct
+language detection in the original speech recognition.
+
+Meeting audio recovery reads and converts the WAV in 250 ms blocks. The raw
+audio buffer no longer grows with the file length; transcript text still grows
+with the conversation. The local notes model starts after recording finishes,
+so it does not occupy memory throughout the call.
 
 ## Meeting privacy
 
@@ -254,7 +258,7 @@ Restart Vocaret after changing defaults.
 
 ## Performance
 
-Meetings prepare the local speech model as recording starts and transcribe
+Local meetings prepare the speech model as recording starts and transcribe
 completed utterances during the call. Natural pauses release passages early;
 sustained speech is split into windows of at most 12 seconds. The final wait
 covers queued passages and optional local AI notes. On a slow machine or a cold
@@ -286,6 +290,10 @@ Microphone and System Audio Recording.
 
 ```bash
 swift test
+# Optional ten-minute synthetic meeting: cached model, native UI, no microphone or paid API
+VOCARET_MEETING_STRESS_TEST=1 swift test -c release --filter MeetingStressTests
+# Optional ten-minute Soniox client replay: synthetic transport and UI, no API calls
+VOCARET_SONIOX_STRESS_TEST=1 swift test -c release --filter SonioxMeetingStressTests
 swift build
 .build/debug/Vocaret --transcribe audio.wav [--language auto|cs|en|de|…]
 open -W -a ~/Applications/Vocaret.app --args --selftest all 8 --out /tmp/selftest.log

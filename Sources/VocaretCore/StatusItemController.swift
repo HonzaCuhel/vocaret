@@ -83,7 +83,7 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
         meetingItem.action = #selector(toggleMeeting)
         menu.addItem(meetingItem)
 
-        cancelItem.title = L("Cancel Recording")
+        cancelItem.title = L("Cancel")
         cancelItem.target = self
         cancelItem.action = #selector(cancelRecording)
         menu.addItem(cancelItem)
@@ -215,7 +215,7 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
             + "  (\(settings.dictationHotkeyLabel))"
         meetingItem.title = (meeting.state == .recording ? L("Stop Meeting & Transcribe") : L("Start Meeting Transcription"))
             + "  (\(settings.meetingHotkeyLabel))"
-        cancelItem.isHidden = dictation.state != .recording && meeting.state != .recording
+        cancelItem.isHidden = !CompanionModel.shared.capturing
 
         for item in statusItem.menu?.items ?? [] {
             if let code = item.representedObject as? String {

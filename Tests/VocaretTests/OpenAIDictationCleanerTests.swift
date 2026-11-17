@@ -2,6 +2,92 @@ import XCTest
 @testable import VocaretCore
 
 final class OpenAIDictationCleanerTests: XCTestCase {
+    func testFastFormattingRejectsReorderedOrResolvedSelfCorrection() async {
+        let raw = "Send it to Alice, no, actually send it to Bob."
+        for output in ["Send it to Bob, no, actually send it to Alice.", "Send it to Alice.", "Send it to Bob."] {
+            let transport = FastCleanupTransport(output: output)
+            let result = await OpenAIDictationCleaner(transport: transport).processFastDictation(
+                raw, apiKey: "test", vocabulary: []
+            )
+            XCTAssertEqual(result.text, raw)
+            XCTAssertEqual(result.failure, .rejected)
+            let requests = await transport.requests
+            XCTAssertEqual(requests.count, 1)
+        }
+    }
+
+    func testFastFormattingCanPunctuateSelfCorrectionWithoutChangingWords() async {
+        let raw = "send it to Alice no actually send it to Bob"
+        let formatted = "Send it to Alice — no, actually send it to Bob."
+        let result = await OpenAIDictationCleaner(transport: FastCleanupTransport(output: formatted)).processFastDictation(
+            raw, apiKey: "test", vocabulary: []
+        )
+        XCTAssertEqual(result.text, formatted)
+        XCTAssertTrue(result.isFormatted)
+    }
+
+    func testFastFormattingKeepsConfirmedAliasBeforeValidation() async throws {
+        let transport = FastCleanupTransport(output: "Pošli zprávu do Vocaret.")
+        let result = await OpenAIDictationCleaner(transport: transport).processFastDictation(
+            "Pošli zprávu do Vokaret.", apiKey: "test", vocabulary: [],
+            confirmedAliases: ["Vokaret": "Vocaret"]
+        )
+        XCTAssertEqual(result.text, "Pošli zprávu do Vocaret.")
+        XCTAssertTrue(result.isFormatted)
+        let requests = await transport.requests
+        let body = try XCTUnwrap(requests.first?.httpBody)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        XCTAssertEqual(json["input"] as? String, "Pošli zprávu do Vocaret.")
+        XCTAssertEqual(requests.count, 1)
+    }
+
+    func testFastFormattingRejectsCzechToSlovakTranslationEvenWithSharedWords() async {
+        let raw = "Prosím pošli mi tento dokument a odpověz na všechny otázky. Děkuji za pomoc. Potřebuji zkontrolovat celý seznam a potom připravit podklady pro naši příští schůzku."
+        let translated = "Prosím pošli mi tento dokument a odpovedz na všetky otázky. Ďakujem za pomoc. Potrebujem skontrolovať celý zoznam a potom pripraviť podklady pre našu ďalšiu schôdzku."
+        let transport = FastCleanupTransport(output: translated)
+        let result = await OpenAIDictationCleaner(transport: transport).processFastDictation(
+            raw, apiKey: "test", vocabulary: []
+        )
+        XCTAssertEqual(result.text, raw)
+        XCTAssertEqual(result.failure, .rejected)
+    }
+
+    func testFastFormattingPreservesBilingualTextWithNewParagraphs() async {
+        let raw = "Prosím zkontroluj import a napiš mi, co se změnilo. Then check the export and let me know if anything is missing. Nic neposílej bez potvrzení."
+        let formatted = "Prosím zkontroluj import a napiš mi, co se změnilo.\n\nThen check the export and let me know if anything is missing.\n\nNic neposílej bez potvrzení."
+        let result = await OpenAIDictationCleaner(transport: FastCleanupTransport(output: formatted)).processFastDictation(
+            raw, apiKey: "test", vocabulary: []
+        )
+        XCTAssertEqual(result.text, formatted)
+        XCTAssertTrue(result.isFormatted)
+    }
+
+    func testFastFormattingUsesOneRequestForWholeBilingualDictation() async throws {
+        let raw = String(repeating: "Zaprvé zkontroluj import. Then check the export. ", count: 15)
+        let transport = FastCleanupTransport(output: raw)
+        let result = await OpenAIDictationCleaner(transport: transport).processFastDictation(raw, apiKey: "test", vocabulary: [])
+        XCTAssertEqual(result.text, raw.trimmingCharacters(in: .whitespacesAndNewlines))
+        XCTAssertTrue(result.isFormatted)
+        let requests = await transport.requests
+        XCTAssertEqual(requests.count, 1)
+        let body = try XCTUnwrap(requests.first?.httpBody)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        XCTAssertEqual(json["input"] as? String, raw)
+        XCTAssertEqual(json["store"] as? Bool, false)
+        XCTAssertNil((json["text"] as? [String: Any])?["format"])
+    }
+
+    func testFastFormattingRejectsChangedAmountWithoutAnotherModelCall() async {
+        let transport = FastCleanupTransport(output: "Pošli 300 eur Janě.")
+        let result = await OpenAIDictationCleaner(transport: transport).processFastDictation(
+            "Pošli 30 eur Janě.", apiKey: "test", vocabulary: []
+        )
+        XCTAssertEqual(result.text, "Pošli 30 eur Janě.")
+        XCTAssertEqual(result.failure, .rejected)
+        let count = await transport.requests.count
+        XCTAssertEqual(count, 1)
+    }
+
     func testRepairCannotBypassOriginalIntentReview() async {
         let raw = "Pošli to Petrovi, ne, Janě. Nic nezveřejňuj."
         for edit in [
@@ -240,5 +326,17 @@ private actor RewriteApprovalTransport: OpenAIResponsesTransport {
             "status": "completed", "output": [["content": [["type": "output_text", "text": output]]]]
         ])
         return (data, HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+    }
+}
+
+private actor FastCleanupTransport: OpenAIResponsesTransport {
+    let output: String
+    private(set) var requests: [URLRequest] = []
+    init(output: String) { self.output = output }
+    func data(for request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+        requests.append(request)
+        let response: [String: Any] = ["status": "completed", "output": [["content": [["type": "output_text", "text": output]]]]]
+        return (try JSONSerialization.data(withJSONObject: response),
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
     }
 }

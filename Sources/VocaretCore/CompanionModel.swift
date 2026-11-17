@@ -287,10 +287,17 @@ enum CompanionAgentRunner {
             // Reap before deleting the working directory; force termination if ignored.
             for _ in 0..<20 where process.isRunning { try? await Task.sleep(nanoseconds: 50_000_000) }
             if process.isRunning { kill(process.processIdentifier, SIGKILL) }
-            process.waitUntilExit()
+            // Poll outside the cancelled task so cleanup remains bounded even
+            // after cancellation. Foundation's synchronous waiter can hang on
+            // a cooperative executor despite isRunning already being false.
+            await Task.detached {
+                for _ in 0..<20 where process.isRunning {
+                    try? await Task.sleep(nanoseconds: 50_000_000)
+                }
+            }.value
             throw error
         }
-        process.waitUntilExit()
+        // The loop observed termination; its status and file output are ready.
         guard process.terminationStatus == 0 else {
             let diagnostic = ((try? String(contentsOf: stdout, encoding: .utf8)) ?? "").lowercased()
             let reason = diagnostic.contains("session limit") || diagnostic.contains("rate limit") || diagnostic.contains("usage limit")

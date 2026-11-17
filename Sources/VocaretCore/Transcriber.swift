@@ -15,9 +15,6 @@ public actor Transcriber {
     /// inside a Czech sentence than inside an English one).
     private var _lastLanguage: String?
     public var lastLanguage: String? { _lastLanguage }
-    /// How many allowed languages to try when Whisper's own pick is not one of
-    /// them. Each costs a decode, and the user may have checked twelve.
-    static let maxLanguageCandidates = 2
     /// In-flight load. Actors are reentrant at every `await`, so without this
     /// a hotkey press during the (minutes-long, first-launch) load would start
     /// a second download/CoreML load of the same model.
@@ -192,8 +189,7 @@ public actor Transcriber {
         try Task.checkCancellation()
         let kit = try await engineIfWhisper()
         defer { scheduleUnloadIfConfigured() }
-        let samples = try AudioProcessor.loadAudioAsFloatArray(fromPath: fileURL.path)
-        return try await transcribeChunked(kit, samples)
+        return try await transcribeFile(kit, fileURL: fileURL)
     }
 
     func transcribeMeetingFile(fileURL: URL, engine: String) async throws -> [SpokenSegment] {
@@ -201,11 +197,29 @@ public actor Transcriber {
         defer { releaseDecode() }
         try Task.checkCancellation()
         let kit = engine == "parakeet" ? nil : try await ensureLoaded()
-        let samples = try AudioProcessor.loadAudioAsFloatArray(fromPath: fileURL.path)
-        return try await transcribeChunked(kit, samples)
+        return try await transcribeFile(kit, fileURL: fileURL)
     }
 
     // MARK: - Chunked / language-aware decoding
+
+    private func transcribeFile(_ kit: WhisperKit?, fileURL: URL) async throws -> [SpokenSegment] {
+        let reader = try MeetingAudioFileReader(url: fileURL)
+        var chunker = StreamingUtteranceChunker()
+        var segments: [SpokenSegment] = []
+        while let samples = try reader.next() {
+            for chunk in chunker.append(samples) {
+                try Task.checkCancellation()
+                segments += try await transcribeChunk(kit, chunk.samples,
+                    offset: Double(chunk.startSample) / MicRecorder.whisperSampleRate)
+            }
+        }
+        for chunk in chunker.finish() {
+            try Task.checkCancellation()
+            segments += try await transcribeChunk(kit, chunk.samples,
+                offset: Double(chunk.startSample) / MicRecorder.whisperSampleRate)
+        }
+        return segments
+    }
 
     private func transcribeChunked(_ kit: WhisperKit?, _ samples: [Float]) async throws -> [SpokenSegment] {
         let ranges = UtteranceChunker().chunks(in: samples)
@@ -266,17 +280,11 @@ public actor Transcriber {
                 // Respect an explicitly restricted set. WhisperKit's
                 // detectLangauge() exposes only its rejected top-1 language,
                 // so compare actual allowed-language decodes by confidence.
-                let candidates = Array(allowed.prefix(Self.maxLanguageCandidates))
-                var best: (language: String, score: Float, results: [TranscriptionResult])?
-                for candidate in candidates {
-                    let attempt = try await kit.transcribe(audioArray: samples, decodeOptions: Self.decodeOptions(language: candidate))
-                    let segments = attempt.flatMap(\.segments).filter { !$0.text.trimmingCharacters(in: .whitespaces).isEmpty }
-                    guard !segments.isEmpty else { continue }
-                    let score = segments.map(\.avgLogprob).reduce(0, +) / Float(segments.count)
-                    if score > (best?.score ?? -.infinity) { best = (candidate, score, attempt) }
+                let best = try await Self.decodeAllowedLanguages(allowed) { candidate in
+                    try await kit.transcribe(audioArray: samples, decodeOptions: Self.decodeOptions(language: candidate))
                 }
                 if let best {
-                    Log.info("Whisper detected '\(detected)' (not allowed); using '\(best.language)' (avgLogProb \(best.score))")
+                    Log.info("Whisper detected '\(detected)' (not allowed); using '\(best.language)'")
                     results = best.results
                 }
             }
@@ -292,6 +300,24 @@ public actor Transcriber {
             }
         }
         .filter { !$0.text.isEmpty }
+    }
+
+    /// An explicitly selected language must not be excluded by its list position.
+    /// Only reached when automatic detection picked a disallowed language.
+    static func decodeAllowedLanguages(
+        _ allowed: [String],
+        decode: (String) async throws -> [TranscriptionResult]
+    ) async throws -> (language: String, results: [TranscriptionResult])? {
+        var best: (language: String, score: Float, results: [TranscriptionResult])?
+        for candidate in allowed {
+            try Task.checkCancellation()
+            let results = try await decode(candidate)
+            let segments = results.flatMap(\.segments).filter { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            guard !segments.isEmpty else { continue }
+            let score = segments.map(\.avgLogprob).reduce(0, +) / Float(segments.count)
+            if score > (best?.score ?? -.infinity) { best = (candidate, score, results) }
+        }
+        return best.map { ($0.language, $0.results) }
     }
 
     // MARK: - Model lifecycle

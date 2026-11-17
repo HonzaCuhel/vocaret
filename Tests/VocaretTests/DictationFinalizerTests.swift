@@ -3,6 +3,34 @@ import XCTest
 
 @MainActor
 final class DictationFinalizerTests: XCTestCase {
+    func testTranslatedCleanupCannotBypassRawLanguageCheckOrTeachAliases() async throws {
+        let raw = "Prosím pošli mi tento dokument a odpověz na všechny otázky. Děkuji za pomoc. Potřebuji zkontrolovat celý seznam a potom připravit podklady pro naši příští schůzku."
+        let translated = "Prosím pošli mi tento dokument a odpovedz na všetky otázky. Ďakujem za pomoc. Potrebujem skontrolovať celý zoznam a potom pripraviť podklady pre našu ďalšiu schôdzku."
+        var learned = false
+        let result = try await DictationFinalizer.finalize(
+            rawText: raw, recordingSeconds: 10, transcriptionStarted: Date(), model: "fixture",
+            cleanup: { _ in DictationCleanupResult(text: translated, failure: nil) },
+            learnCorrections: { _, _ in learned = true }, correct: { $0 }
+        )
+        XCTAssertEqual(result.record.text, raw)
+        XCTAssertEqual(result.cleanupFailure, .rejected)
+        XCTAssertFalse(result.record.cleaned)
+        XCTAssertFalse(learned)
+    }
+
+    func testPersonalCorrectionsCannotTranslateTextWhenCleanupIsDisabled() async throws {
+        let raw = "Prosím pošli mi tento dokument a odpověz na všechny otázky. Děkuji za pomoc. Potřebuji zkontrolovat celý seznam a potom připravit podklady pro naši příští schůzku."
+        let translated = "Prosím pošli mi tento dokument a odpovedz na všetky otázky. Ďakujem za pomoc. Potrebujem skontrolovať celý zoznam a potom pripraviť podklady pre našu ďalšiu schôdzku."
+        let result = try await DictationFinalizer.finalize(
+            rawText: raw, recordingSeconds: 10, transcriptionStarted: Date(), model: "fixture",
+            cleanup: nil, learnCorrections: { _, _ in XCTFail("Cleanup is disabled") },
+            correct: { _ in translated }
+        )
+        XCTAssertEqual(result.record.text, raw)
+        XCTAssertEqual(result.cleanupFailure, .rejected)
+        XCTAssertFalse(result.record.cleaned)
+    }
+
     func testOnlyFinalFormattedTextReachesHistoryHUDCompanionAndClipboardFallback() async throws {
         let raw = "rozpočet je 20 000 Kč teda 30 000 Kč a projekt vocaret začíná v pondělí"
         let formatted = "Rozpočet je 30 000 Kč a projekt vocaret začíná v pondělí."
